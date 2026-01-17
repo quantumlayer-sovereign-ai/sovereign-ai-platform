@@ -1,0 +1,48 @@
+# Sovereign AI Platform Requirements
+
+# Core ML
+torch>=2.0.0
+transformers>=4.40.0
+accelerate
+bitsandbytes
+safetensors
+
+# LoRA/PEFT
+peft>=0.10.0
+
+# RAG
+sentence-transformers
+faiss-cpu  # Use faiss-gpu for GPU acceleration
+chromadb
+langchain
+langchain-community
+
+# API
+fastapi
+uvicorn[standard]
+pydantic>=2.0.0
+
+# Tools
+gitpython
+docker
+kubernetes
+
+# Utilities
+pyyaml
+python-dotenv
+rich  # Beautiful terminal output
+httpx
+aiofiles
+
+# Logging & Monitoring
+structlog
+prometheus-client
+
+# Testing
+pytest
+pytest-asyncio
+
+# Development
+black
+isort
+mypy
