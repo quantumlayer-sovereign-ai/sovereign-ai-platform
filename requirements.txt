@@ -17,6 +17,9 @@ chromadb
 langchain
 langchain-community
 
+# PDF Processing
+pypdf
+
 # API
 fastapi
 uvicorn[standard]
@@ -41,6 +44,7 @@ prometheus-client
 # Testing
 pytest
 pytest-asyncio
+pytest-json-report
 
 # Development
 black

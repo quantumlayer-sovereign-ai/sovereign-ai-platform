@@ -67,6 +67,9 @@ htmlcov/
 
 # Data files (can be large)
 data/training/*
-data/knowledge/*
 !data/training/.gitkeep
-!data/knowledge/.gitkeep
+
+# Knowledge base - include fintech docs but not large files
+data/knowledge/**/*.pdf
+data/knowledge/**/*.csv
+!data/knowledge/fintech/
