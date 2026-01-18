@@ -468,7 +468,7 @@ pytest tests/
         return list(dependencies)
 
     async def _save_project(self, manifest: ProjectManifest) -> None:
-        """Save project to disk"""
+        """Save project to disk and post-process to fix common issues."""
         project_dir = self.base_dir / manifest.task_id
         project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -477,6 +477,24 @@ pytest tests/
             file_path = project_dir / file.path
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(file.content, encoding="utf-8")
+
+        # Post-process to fix common issues (imports, Pydantic v2, etc.)
+        try:
+            from .post_processor import CodePostProcessor
+            processor = CodePostProcessor(project_dir)
+            fix_results = processor.process_all_files()
+            if fix_results["fixed"] > 0:
+                logger.info(
+                    "post_processing_applied",
+                    task_id=manifest.task_id,
+                    files_fixed=fix_results["fixed"],
+                )
+        except Exception as e:
+            logger.warning(
+                "post_processing_failed",
+                task_id=manifest.task_id,
+                error=str(e),
+            )
 
         # Save manifest (without file contents for quick loading)
         manifest_data = manifest.to_dict()
