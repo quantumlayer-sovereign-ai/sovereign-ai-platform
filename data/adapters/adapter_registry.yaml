@@ -1,0 +1,45 @@
+# Adapter Registry
+# Auto-updated by AdapterManager
+
+updated_at: null
+
+roles:
+  fintech_coder:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "Payment APIs, UPI, banking code generation"
+    priority: high
+    lora_rank: 32
+
+  fintech_security:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "PCI-DSS scanning, vulnerability detection"
+    priority: high
+    lora_rank: 16
+
+  fintech_compliance:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "RBI/SEBI/DPDP regulatory compliance"
+    priority: medium
+    lora_rank: 8
+
+  fintech_architect:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "Payment system architecture design"
+    priority: medium
+    lora_rank: 16
+
+  fintech_tester:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "Payment testing, QA automation"
+    priority: low
+    lora_rank: 16

@@ -6,17 +6,22 @@ Features:
 - Agent pool management
 - Resource tracking
 - Lifecycle management
+- Auto LoRA adapter loading for specialized roles
 """
 
-import asyncio
-from typing import Dict, Any, Optional, List
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
 import structlog
 
 from .base import Agent, AgentState
-from .registry import RoleRegistry, get_registry
+from .registry import get_registry
 
 logger = structlog.get_logger()
+
+# Default adapter directory
+DEFAULT_ADAPTERS_DIR = Path("data/adapters")
 
 
 class AgentFactory:
@@ -28,23 +33,33 @@ class AgentFactory:
     - Agent pool management
     - Resource tracking
     - Cleanup and destruction
+    - Auto LoRA adapter loading for specialized roles
     """
 
-    def __init__(self, model_interface: Any = None, max_agents: int = 10):
+    def __init__(
+        self,
+        model_interface: Any = None,
+        max_agents: int = 10,
+        adapters_dir: Path | None = None,
+        auto_load_lora: bool = True
+    ):
         self.model_interface = model_interface
         self.max_agents = max_agents
-        self.active_agents: Dict[str, Agent] = {}
-        self.agent_history: List[Dict[str, Any]] = []
+        self.active_agents: dict[str, Agent] = {}
+        self.agent_history: list[dict[str, Any]] = []
         self.registry = get_registry()
+        self.adapters_dir = adapters_dir or DEFAULT_ADAPTERS_DIR
+        self.auto_load_lora = auto_load_lora
+        self._loaded_adapters: set[str] = set()
 
     @classmethod
     def create_agent(
         cls,
-        role: Optional[Dict[str, Any]] = None,
-        role_name: Optional[str] = None,
+        role: dict[str, Any] | None = None,
+        role_name: str | None = None,
         model_interface: Any = None,
-        parent_id: Optional[str] = None,
-        tools: Optional[Dict[str, Any]] = None
+        parent_id: str | None = None,
+        tools: dict[str, Any] | None = None
     ) -> Agent:
         """
         Create a new agent instance
@@ -85,8 +100,9 @@ class AgentFactory:
     def spawn(
         self,
         role_name: str,
-        tools: Optional[Dict[str, Any]] = None,
-        parent_id: Optional[str] = None
+        tools: dict[str, Any] | None = None,
+        parent_id: str | None = None,
+        lora_version: str = "latest"
     ) -> Agent:
         """
         Spawn a new agent and add to pool
@@ -95,6 +111,7 @@ class AgentFactory:
             role_name: Name of role from registry
             tools: Additional tools
             parent_id: Parent agent ID
+            lora_version: LoRA adapter version to load ("latest" or specific version)
 
         Returns:
             Spawned agent
@@ -110,6 +127,10 @@ class AgentFactory:
         if not role:
             raise ValueError(f"Role not found: {role_name}")
 
+        # Auto-load LoRA adapter if available
+        if self.auto_load_lora and self.model_interface:
+            self._load_adapter_for_role(role_name, lora_version)
+
         agent = self.create_agent(
             role=role,
             model_interface=self.model_interface,
@@ -120,12 +141,86 @@ class AgentFactory:
         self.active_agents[agent.agent_id] = agent
         return agent
 
+    def _has_adapter(self, role_name: str) -> bool:
+        """Check if an adapter exists for the role"""
+        adapter_path = self._get_adapter_path(role_name)
+        return adapter_path is not None and adapter_path.exists()
+
+    def _get_adapter_path(self, role_name: str, version: str = "latest") -> Path | None:
+        """Get path to adapter for a role"""
+        role_dir = self.adapters_dir / role_name
+
+        if not role_dir.exists():
+            return None
+
+        if version == "latest":
+            latest_link = role_dir / "latest"
+            if latest_link.exists():
+                return latest_link.resolve()
+            # Fall back to most recent version directory
+            versions = sorted(
+                [d for d in role_dir.iterdir() if d.is_dir() and not d.is_symlink()],
+                reverse=True
+            )
+            if versions:
+                return versions[0]
+            return None
+
+        version_path = role_dir / version
+        return version_path if version_path.exists() else None
+
+    def _load_adapter_for_role(self, role_name: str, version: str = "latest"):
+        """Load LoRA adapter for a role if available"""
+        # Skip if already loaded
+        if role_name in self._loaded_adapters:
+            # Just activate the existing adapter
+            if hasattr(self.model_interface, 'set_active_lora'):
+                try:
+                    self.model_interface.set_active_lora(role_name)
+                    logger.debug("lora_activated", role=role_name)
+                except (ValueError, RuntimeError):
+                    pass  # Adapter may not be loaded yet
+            return
+
+        adapter_path = self._get_adapter_path(role_name, version)
+        if adapter_path is None:
+            logger.debug("no_adapter_found", role=role_name)
+            return
+
+        # Check for adapter files
+        if not (adapter_path / "adapter_config.json").exists():
+            logger.debug("invalid_adapter", role=role_name, path=str(adapter_path))
+            return
+
+        # Load the adapter
+        try:
+            if hasattr(self.model_interface, 'load_lora'):
+                self.model_interface.load_lora(str(adapter_path), role_name)
+                self._loaded_adapters.add(role_name)
+                logger.info("lora_loaded", role=role_name, path=str(adapter_path))
+        except Exception as e:
+            logger.warning("lora_load_failed", role=role_name, error=str(e))
+
+    def unload_adapter(self, role_name: str):
+        """Unload a specific LoRA adapter"""
+        if role_name not in self._loaded_adapters:
+            return
+
+        if hasattr(self.model_interface, 'unload_lora'):
+            self.model_interface.unload_lora(role_name)
+            self._loaded_adapters.discard(role_name)
+            logger.info("lora_unloaded", role=role_name)
+
+    def list_loaded_adapters(self) -> list[str]:
+        """List currently loaded adapters"""
+        return list(self._loaded_adapters)
+
     def spawn_for_task(
         self,
         task: str,
-        vertical: Optional[str] = None,
-        parent_id: Optional[str] = None
-    ) -> List[Agent]:
+        vertical: str | None = None,
+        parent_id: str | None = None
+    ) -> list[Agent]:
         """
         Automatically spawn agents based on task analysis
 
@@ -159,11 +254,11 @@ class AgentFactory:
 
         return agents
 
-    def get_agent(self, agent_id: str) -> Optional[Agent]:
+    def get_agent(self, agent_id: str) -> Agent | None:
         """Get an agent by ID"""
         return self.active_agents.get(agent_id)
 
-    def list_agents(self) -> List[Dict[str, Any]]:
+    def list_agents(self) -> list[dict[str, Any]]:
         """List all active agents"""
         return [
             {
@@ -213,14 +308,14 @@ class AgentFactory:
             self.destroy_agent(agent_id)
         logger.info("all_agents_destroyed")
 
-    def get_audit_trail(self) -> List[Dict[str, Any]]:
+    def get_audit_trail(self) -> list[dict[str, Any]]:
         """Get complete audit trail of all agents"""
         return self.agent_history + [
             agent.get_audit_log() for agent in self.active_agents.values()
         ]
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get factory statistics"""
         state_counts = {}
         for agent in self.active_agents.values():
@@ -236,7 +331,7 @@ class AgentFactory:
 
 
 # Global factory instance
-_factory: Optional[AgentFactory] = None
+_factory: AgentFactory | None = None
 
 
 def get_factory(model_interface: Any = None) -> AgentFactory:

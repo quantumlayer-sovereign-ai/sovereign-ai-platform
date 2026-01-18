@@ -10,6 +10,11 @@ safetensors
 # LoRA/PEFT
 peft>=0.10.0
 
+# Training
+datasets>=2.14.0        # HuggingFace datasets
+trl>=0.7.0              # Training utilities (SFTTrainer)
+tensorboard>=2.14.0     # Training visualization
+
 # RAG
 sentence-transformers
 faiss-cpu  # Use faiss-gpu for GPU acceleration

@@ -8,12 +8,14 @@ Features:
 - Code-optimized generation
 """
 
-import torch
-from typing import List, Dict, Any, Optional, AsyncGenerator
 import asyncio
-import structlog
+from collections.abc import AsyncGenerator
+from typing import Any, ClassVar
 
-from .interface import ModelInterface, GenerationConfig
+import structlog
+import torch
+
+from .interface import GenerationConfig, ModelInterface
 
 logger = structlog.get_logger()
 
@@ -26,7 +28,7 @@ class QwenModel(ModelInterface):
     """
 
     # Available model sizes
-    MODELS = {
+    MODELS: ClassVar[dict[str, str]] = {
         "1.5b": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
         "3b": "Qwen/Qwen2.5-Coder-3B-Instruct",
         "7b": "Qwen/Qwen2.5-Coder-7B-Instruct",
@@ -58,8 +60,8 @@ class QwenModel(ModelInterface):
 
         self.model = None
         self.tokenizer = None
-        self.lora_adapters: Dict[str, str] = {}
-        self.active_lora: Optional[str] = None
+        self.lora_adapters: dict[str, str] = {}
+        self.active_lora: str | None = None
 
         self._loaded = False
 
@@ -120,8 +122,8 @@ class QwenModel(ModelInterface):
 
     async def generate(
         self,
-        messages: List[Dict[str, str]],
-        config: Optional[GenerationConfig] = None
+        messages: list[dict[str, str]],
+        config: GenerationConfig | None = None
     ) -> str:
         """Generate response from messages"""
         if not self._loaded:
@@ -162,15 +164,16 @@ class QwenModel(ModelInterface):
 
     async def generate_stream(
         self,
-        messages: List[Dict[str, str]],
-        config: Optional[GenerationConfig] = None
+        messages: list[dict[str, str]],
+        config: GenerationConfig | None = None
     ) -> AsyncGenerator[str, None]:
         """Stream generated tokens"""
         if not self._loaded:
             raise RuntimeError("Model not loaded. Call load() first.")
 
-        from transformers import TextIteratorStreamer
         from threading import Thread
+
+        from transformers import TextIteratorStreamer
 
         config = config or GenerationConfig()
 
@@ -257,12 +260,81 @@ class QwenModel(ModelInterface):
             self.active_lora = adapter_name
             logger.info("lora_activated", adapter=adapter_name)
 
+    def disable_lora(self) -> None:
+        """Disable all LoRA adapters (use base model)"""
+        if not self._loaded:
+            return
+
+        if hasattr(self.model, 'disable_adapter_layers'):
+            self.model.disable_adapter_layers()
+            self.active_lora = None
+            logger.info("lora_disabled")
+        elif hasattr(self, '_base_model') and self._base_model is not None:
+            # Fall back to base model
+            self.model = self._base_model
+            self.active_lora = None
+            logger.info("lora_disabled_fallback")
+
+    def enable_lora(self, adapter_name: str | None = None) -> None:
+        """
+        Enable LoRA adapters
+
+        Args:
+            adapter_name: Specific adapter to enable, or None to enable last active
+        """
+        if not self._loaded:
+            return
+
+        if hasattr(self.model, 'enable_adapter_layers'):
+            self.model.enable_adapter_layers()
+
+            if adapter_name:
+                self.set_active_lora(adapter_name)
+            elif self.lora_adapters:
+                # Enable first available adapter
+                self.set_active_lora(list(self.lora_adapters.keys())[0])
+
+            logger.info("lora_enabled", adapter=self.active_lora)
+
+    def merge_and_unload(self, adapter_name: str | None = None) -> None:
+        """
+        Merge LoRA weights into base model and unload adapter
+
+        Args:
+            adapter_name: Adapter to merge, or None for active adapter
+        """
+        if not self._loaded or not hasattr(self.model, 'merge_and_unload'):
+            return
+
+        target = adapter_name or self.active_lora
+        if target and target in self.lora_adapters:
+            self.model = self.model.merge_and_unload()
+            del self.lora_adapters[target]
+            if self.active_lora == target:
+                self.active_lora = None
+            logger.info("lora_merged", adapter=target)
+
+    def list_adapters(self) -> list[str]:
+        """List all loaded LoRA adapters"""
+        return list(self.lora_adapters.keys())
+
+    def get_adapter_info(self, adapter_name: str) -> dict | None:
+        """Get information about a loaded adapter"""
+        if adapter_name not in self.lora_adapters:
+            return None
+
+        return {
+            "name": adapter_name,
+            "path": self.lora_adapters[adapter_name],
+            "is_active": self.active_lora == adapter_name
+        }
+
     @property
     def is_loaded(self) -> bool:
         return self._loaded
 
     @property
-    def model_info(self) -> Dict[str, Any]:
+    def model_info(self) -> dict[str, Any]:
         info = {
             "model_id": self.model_id,
             "model_size": self.model_size,
