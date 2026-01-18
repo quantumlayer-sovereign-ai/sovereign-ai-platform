@@ -9,10 +9,11 @@ Roles define:
 - Spawn conditions
 """
 
-import yaml
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 import structlog
+import yaml
 
 logger = structlog.get_logger()
 
@@ -25,9 +26,9 @@ class RoleRegistry:
     role lookup and matching capabilities.
     """
 
-    def __init__(self, roles_dir: Optional[Path] = None):
+    def __init__(self, roles_dir: Path | None = None):
         self.roles_dir = roles_dir or Path(__file__).parent.parent.parent / "configs" / "roles"
-        self.roles: Dict[str, Dict[str, Any]] = {}
+        self.roles: dict[str, dict[str, Any]] = {}
         self._load_builtin_roles()
         self._load_custom_roles()
 
@@ -259,15 +260,15 @@ Security analysis process:
             except Exception as e:
                 logger.error("role_load_failed", file=yaml_file.name, error=str(e))
 
-    def get_role(self, role_name: str) -> Optional[Dict[str, Any]]:
+    def get_role(self, role_name: str) -> dict[str, Any] | None:
         """Get a role by name"""
         return self.roles.get(role_name)
 
-    def list_roles(self) -> List[str]:
+    def list_roles(self) -> list[str]:
         """List all available roles"""
         return list(self.roles.keys())
 
-    def find_roles_for_task(self, task: str, vertical: Optional[str] = None) -> List[str]:
+    def find_roles_for_task(self, task: str, vertical: str | None = None) -> list[str]:
         """
         Find suitable roles for a given task
 
@@ -294,7 +295,7 @@ Security analysis process:
 
         return matching_roles
 
-    def register_role(self, role_name: str, role_config: Dict[str, Any]):
+    def register_role(self, role_name: str, role_config: dict[str, Any]):
         """Register a new role dynamically"""
         self.roles[role_name] = role_config
         logger.info("role_registered", role=role_name)
@@ -312,7 +313,7 @@ Security analysis process:
 
         logger.info("role_saved", role=role_name, file=file_path.name)
 
-    def get_roles_by_vertical(self, vertical: str) -> List[str]:
+    def get_roles_by_vertical(self, vertical: str) -> list[str]:
         """Get all roles for a specific vertical"""
         return [
             name for name, config in self.roles.items()
@@ -321,7 +322,7 @@ Security analysis process:
 
 
 # Global registry instance
-_registry: Optional[RoleRegistry] = None
+_registry: RoleRegistry | None = None
 
 
 def get_registry() -> RoleRegistry:

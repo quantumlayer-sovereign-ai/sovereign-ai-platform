@@ -4,15 +4,14 @@ Code Execution and File Management Tools
 Safe code execution with sandboxing and file operations
 """
 
-import os
-import sys
-import subprocess
-import tempfile
 import ast
-import traceback
-from typing import Dict, Any, Optional, List
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
-from datetime import datetime
+from typing import Any, ClassVar
+
 import structlog
 
 logger = structlog.get_logger()
@@ -30,12 +29,12 @@ class CodeExecutor:
     - Prohibited operation detection
     """
 
-    DANGEROUS_IMPORTS = [
+    DANGEROUS_IMPORTS: ClassVar[list[str]] = [
         'os.system', 'subprocess', 'eval', 'exec',
         'compile', '__import__', 'open', 'file'
     ]
 
-    DANGEROUS_CALLS = [
+    DANGEROUS_CALLS: ClassVar[list[str]] = [
         'os.remove', 'os.rmdir', 'shutil.rmtree',
         'os.makedirs', 'os.mkdir'
     ]
@@ -44,7 +43,7 @@ class CodeExecutor:
         self,
         timeout: int = 30,
         max_output_size: int = 10000,
-        allowed_modules: Optional[List[str]] = None
+        allowed_modules: list[str] | None = None
     ):
         self.timeout = timeout
         self.max_output_size = max_output_size
@@ -53,7 +52,7 @@ class CodeExecutor:
             'collections', 'itertools', 'functools', 'dataclasses'
         ]
 
-    def validate_code(self, code: str) -> Dict[str, Any]:
+    def validate_code(self, code: str) -> dict[str, Any]:
         """
         Static analysis to detect potentially dangerous code
 
@@ -76,13 +75,12 @@ class CodeExecutor:
                                 'line': node.lineno
                             })
 
-                if isinstance(node, ast.ImportFrom):
-                    if node.module not in self.allowed_modules:
-                        issues.append({
-                            'type': 'restricted_import',
-                            'module': node.module,
-                            'line': node.lineno
-                        })
+                if isinstance(node, ast.ImportFrom) and node.module not in self.allowed_modules:
+                    issues.append({
+                        'type': 'restricted_import',
+                        'module': node.module,
+                        'line': node.lineno
+                    })
 
                 # Check for dangerous function calls
                 if isinstance(node, ast.Call):
@@ -95,13 +93,12 @@ class CodeExecutor:
                                 'line': node.lineno
                             })
 
-                    if isinstance(node.func, ast.Name):
-                        if node.func.id in ['eval', 'exec', 'compile', '__import__']:
-                            issues.append({
-                                'type': 'dangerous_builtin',
-                                'function': node.func.id,
-                                'line': node.lineno
-                            })
+                    if isinstance(node.func, ast.Name) and node.func.id in ['eval', 'exec', 'compile', '__import__']:
+                        issues.append({
+                            'type': 'dangerous_builtin',
+                            'function': node.func.id,
+                            'line': node.lineno
+                        })
 
             return {
                 'valid': len(issues) == 0,
@@ -128,7 +125,7 @@ class CodeExecutor:
             return node.id
         return ""
 
-    def execute(self, code: str, inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def execute(self, code: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Execute Python code in a sandboxed environment
 
@@ -154,7 +151,7 @@ class CodeExecutor:
             # Prepare code with inputs
             if inputs:
                 for key, value in inputs.items():
-                    f.write(f"{key} = {repr(value)}\n")
+                    f.write(f"{key} = {value!r}\n")
             f.write(code)
             temp_file = f.name
 
@@ -199,7 +196,7 @@ class CodeExecutor:
             # Cleanup
             try:
                 os.unlink(temp_file)
-            except:
+            except OSError:
                 pass
 
     def execute_snippet(self, code: str) -> str:
@@ -234,7 +231,7 @@ class FileManager:
 
         return full_path
 
-    def read_file(self, path: str) -> Dict[str, Any]:
+    def read_file(self, path: str) -> dict[str, Any]:
         """Read file contents"""
         try:
             full_path = self._validate_path(path)
@@ -257,7 +254,7 @@ class FileManager:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def write_file(self, path: str, content: str) -> Dict[str, Any]:
+    def write_file(self, path: str, content: str) -> dict[str, Any]:
         """Write content to file"""
         try:
             full_path = self._validate_path(path)
@@ -277,7 +274,7 @@ class FileManager:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def list_directory(self, path: str = ".") -> Dict[str, Any]:
+    def list_directory(self, path: str = ".") -> dict[str, Any]:
         """List directory contents"""
         try:
             full_path = self._validate_path(path)
@@ -306,7 +303,7 @@ class FileManager:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def delete_file(self, path: str) -> Dict[str, Any]:
+    def delete_file(self, path: str) -> dict[str, Any]:
         """Delete a file"""
         try:
             full_path = self._validate_path(path)
@@ -324,7 +321,7 @@ class FileManager:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def search_files(self, pattern: str, path: str = ".") -> Dict[str, Any]:
+    def search_files(self, pattern: str, path: str = ".") -> dict[str, Any]:
         """Search for files matching pattern"""
         try:
             full_path = self._validate_path(path)

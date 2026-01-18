@@ -9,13 +9,12 @@ Tests:
 - Test runner
 """
 
-import pytest
-import tempfile
-from pathlib import Path
 
-from core.tools.code_tools import CodeExecutor, FileManager, SecurityError
+import pytest
+
+from core.tools.code_tools import CodeExecutor, FileManager
 from core.tools.git_tools import GitOperations
-from core.tools.security_tools import SecurityScanner, Severity
+from core.tools.security_tools import SecurityScanner
 from core.tools.testing_tools import TestRunner
 
 
@@ -73,11 +72,11 @@ def broken(
 
     def test_timeout_handling(self):
         """Test timeout for long-running code"""
-        executor = CodeExecutor(timeout=1)
-        code = """
+        _executor = CodeExecutor(timeout=1)  # noqa: F841
+        _code = """
 import time
 time.sleep(10)
-"""
+"""  # noqa: F841
         # Note: This tests with allowed 'time' module - in practice would be blocked
         # Testing the timeout mechanism itself
 

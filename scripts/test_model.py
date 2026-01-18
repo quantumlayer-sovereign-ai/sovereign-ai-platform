@@ -10,6 +10,7 @@ Tests:
 
 import asyncio
 import sys
+
 sys.path.insert(0, '/home/satish/sovereign-ai')
 
 from rich.console import Console
@@ -31,7 +32,7 @@ async def test_model():
     console.print("Loading model (this may take a minute)...")
     model.load()
 
-    console.print(f"[green]✓ Model loaded![/green]")
+    console.print("[green]✓ Model loaded![/green]")
     console.print(f"  VRAM: {model.model_info.get('vram_gb', 0):.2f} GB")
 
     # Test generation
@@ -56,9 +57,8 @@ async def test_agents():
     """Test agent creation and role assignment"""
     console.print("\n[bold blue]═══ Testing Agent Framework ═══[/bold blue]\n")
 
-    from core.agents.base import Agent, AgentContext
-    from core.agents.registry import get_registry
     from core.agents.factory import AgentFactory
+    from core.agents.registry import get_registry
 
     # Test registry
     registry = get_registry()
@@ -117,7 +117,7 @@ async def test_orchestrator():
 
     result = await orchestrator.execute(task, vertical="fintech")
 
-    console.print(f"[green]✓ Task completed![/green]")
+    console.print("[green]✓ Task completed![/green]")
     console.print(f"  Success: {result.success}")
     console.print(f"  Agents used: {result.agents_used}")
     console.print(f"  Execution time: {result.execution_time_seconds:.2f}s")

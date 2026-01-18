@@ -5,11 +5,11 @@ Code security analysis and vulnerability detection
 """
 
 import re
-import ast
-from typing import Dict, Any, List, Optional
-from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any, ClassVar
+
 import structlog
 
 logger = structlog.get_logger()
@@ -33,8 +33,8 @@ class SecurityIssue:
     line_number: int
     code_snippet: str
     recommendation: str
-    cwe_id: Optional[str] = None
-    owasp_category: Optional[str] = None
+    cwe_id: str | None = None
+    owasp_category: str | None = None
 
 
 class SecurityScanner:
@@ -51,7 +51,7 @@ class SecurityScanner:
     """
 
     # Security rules
-    RULES = {
+    RULES: ClassVar[dict[str, dict[str, Any]]] = {
         # SQL Injection
         "SEC001": {
             "name": "SQL Injection",
@@ -259,9 +259,9 @@ class SecurityScanner:
     }
 
     def __init__(self):
-        self.issues: List[SecurityIssue] = []
+        self.issues: list[SecurityIssue] = []
 
-    def scan_code(self, code: str, file_path: str = "code.py") -> Dict[str, Any]:
+    def scan_code(self, code: str, file_path: str = "code.py") -> dict[str, Any]:
         """
         Scan code for security vulnerabilities
 
@@ -299,7 +299,7 @@ class SecurityScanner:
 
         return self._generate_report()
 
-    def scan_file(self, file_path: str) -> Dict[str, Any]:
+    def scan_file(self, file_path: str) -> dict[str, Any]:
         """Scan a file for security vulnerabilities"""
         path = Path(file_path)
 
@@ -312,7 +312,7 @@ class SecurityScanner:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def scan_directory(self, directory: str, extensions: Optional[List[str]] = None) -> Dict[str, Any]:
+    def scan_directory(self, directory: str, extensions: list[str] | None = None) -> dict[str, Any]:
         """Scan all files in a directory"""
         extensions = extensions or ['.py', '.js', '.java', '.go', '.ts']
         dir_path = Path(directory)
@@ -335,7 +335,7 @@ class SecurityScanner:
         self.issues = all_issues
         return self._generate_report()
 
-    def _generate_report(self) -> Dict[str, Any]:
+    def _generate_report(self) -> dict[str, Any]:
         """Generate security scan report"""
         severity_counts = {s.value: 0 for s in Severity}
         for issue in self.issues:
@@ -393,7 +393,7 @@ class DependencyScanner:
     def __init__(self):
         self.vulnerabilities = []
 
-    def scan_requirements(self, requirements_file: str) -> Dict[str, Any]:
+    def scan_requirements(self, requirements_file: str) -> dict[str, Any]:
         """Scan Python requirements.txt for vulnerabilities"""
         path = Path(requirements_file)
 
@@ -427,7 +427,7 @@ class DependencyScanner:
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
-    def _check_vulnerabilities(self, deps: List[Dict]) -> List[Dict]:
+    def _check_vulnerabilities(self, deps: list[dict]) -> list[dict]:
         """Check dependencies against known vulnerabilities"""
         # Simplified check - in production would use OSV, NVD, or similar
         known_vulnerable = {

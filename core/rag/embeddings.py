@@ -4,7 +4,8 @@ Embedding Model - Sentence Transformers integration
 Uses local embedding models for air-gapped deployment
 """
 
-from typing import List, Optional
+from typing import ClassVar
+
 import structlog
 
 logger = structlog.get_logger()
@@ -20,7 +21,7 @@ class EmbeddingModel:
     - BAAI/bge-large-en-v1.5: Best quality for retrieval (1024 dim)
     """
 
-    MODELS = {
+    MODELS: ClassVar[dict[str, str]] = {
         "minilm": "sentence-transformers/all-MiniLM-L6-v2",
         "mpnet": "sentence-transformers/all-mpnet-base-v2",
         "bge-large": "BAAI/bge-large-en-v1.5",
@@ -30,8 +31,8 @@ class EmbeddingModel:
     def __init__(
         self,
         model_name: str = "minilm",
-        device: Optional[str] = None,
-        cache_dir: Optional[str] = None
+        device: str | None = None,
+        cache_dir: str | None = None
     ):
         self.model_name = self.MODELS.get(model_name, model_name)
         self.device = device
@@ -67,7 +68,7 @@ class EmbeddingModel:
     def is_loaded(self) -> bool:
         return self.model is not None
 
-    def embed(self, texts: List[str], show_progress: bool = False) -> List[List[float]]:
+    def embed(self, texts: list[str], show_progress: bool = False) -> list[list[float]]:
         """
         Generate embeddings for texts
 
@@ -89,11 +90,11 @@ class EmbeddingModel:
 
         return embeddings.tolist()
 
-    def embed_query(self, query: str) -> List[float]:
+    def embed_query(self, query: str) -> list[float]:
         """Embed a single query string"""
         return self.embed([query])[0]
 
-    def embed_documents(self, documents: List[str], batch_size: int = 32) -> List[List[float]]:
+    def embed_documents(self, documents: list[str], batch_size: int = 32) -> list[list[float]]:
         """
         Embed documents in batches
 
@@ -121,7 +122,7 @@ class EmbeddingModel:
 
         return all_embeddings
 
-    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+    def similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
         """Calculate cosine similarity between two embeddings"""
         import numpy as np
 

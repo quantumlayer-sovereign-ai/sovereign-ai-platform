@@ -8,14 +8,13 @@ Tests:
 - Retrieval accuracy
 """
 
-import pytest
-import tempfile
-from pathlib import Path
 
-from core.rag.loader import DocumentLoader, Document, Chunk
+import pytest
+
 from core.rag.embeddings import EmbeddingModel
+from core.rag.loader import Chunk, Document, DocumentLoader
+from core.rag.pipeline import FintechRAG, RAGPipeline
 from core.rag.vectorstore import VectorStore
-from core.rag.pipeline import RAGPipeline, FintechRAG
 
 
 class TestDocumentLoader:
@@ -135,7 +134,7 @@ class TestVectorStore:
         # Cleanup
         try:
             store.delete_collection()
-        except:
+        except Exception:
             pass
 
     def test_add_and_search(self, vector_store):

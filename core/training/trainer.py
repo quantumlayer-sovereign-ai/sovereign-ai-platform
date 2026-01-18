@@ -53,12 +53,21 @@ class RoleLoRATrainer:
 
         logger.info("loading_base_model", model=self.model_name)
 
-        # 4-bit quantization config
+        # Determine device map - use CUDA explicitly if available
+        if torch.cuda.is_available() and self.device == "cuda":
+            device_map = "cuda:0"
+            # Use bfloat16 for modern GPUs (RTX 30xx/40xx), consistent with training config
+            compute_dtype = torch.bfloat16
+        else:
+            device_map = "cpu"
+            compute_dtype = torch.float32
+
+        # 4-bit quantization config (only works on CUDA)
         bnb_config = None
-        if self.quantize:
+        if self.quantize and torch.cuda.is_available():
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_compute_dtype=compute_dtype,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
             )
@@ -77,9 +86,9 @@ class RoleLoRATrainer:
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             quantization_config=bnb_config,
-            device_map="auto",
+            device_map=device_map,
             trust_remote_code=True,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=compute_dtype,
         )
 
         # Enable gradient checkpointing
@@ -229,13 +238,10 @@ class RoleLoRATrainer:
         # Create trainer
         trainer = SFTTrainer(
             model=self.peft_model,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             train_dataset=dataset["train"],
             eval_dataset=dataset["test"],
             args=training_args,
-            dataset_text_field="text",
-            max_seq_length=training_config.max_seq_length,
-            packing=True,  # Pack multiple samples into one sequence
         )
 
         # Train

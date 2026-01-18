@@ -1,0 +1,176 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Stripe-Inspired Light Mode */
+    --background: 213 35% 97%; /* #f6f9fc */
+    --foreground: 210 55% 15%; /* #0a2540 */
+
+    --card: 0 0% 100%; /* #ffffff */
+    --card-foreground: 210 55% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 55% 15%;
+
+    /* Stripe Purple as Primary */
+    --primary: 244 98% 68%; /* #635bff */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 212 33% 95%; /* #f0f4f8 */
+    --secondary-foreground: 210 55% 15%;
+
+    --muted: 212 33% 95%;
+    --muted-foreground: 213 18% 40%; /* #425466 */
+
+    --accent: 212 33% 95%;
+    --accent-foreground: 210 55% 15%;
+
+    --destructive: 0 100% 67%; /* #ff5757 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 24% 91%; /* #e3e8ee */
+    --input: 210 24% 91%;
+    --ring: 244 98% 68%; /* Primary purple for focus rings */
+
+    /* Custom Semantic Colors */
+    --success: 163 100% 42%; /* #00d4aa */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 44 100% 50%; /* #ffbb00 */
+    --warning-foreground: 210 55% 15%;
+
+    --info: 203 100% 50%; /* #00a2ff */
+    --info-foreground: 0 0% 100%;
+
+    /* Chart Colors */
+    --chart-1: 244 98% 68%; /* Primary purple */
+    --chart-2: 163 100% 42%; /* Success teal */
+    --chart-3: 203 100% 50%; /* Info blue */
+    --chart-4: 44 100% 50%; /* Warning gold */
+    --chart-5: 0 100% 67%; /* Error coral */
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* Stripe-Inspired Dark Mode */
+    --background: 210 62% 15%; /* #0a2540 */
+    --foreground: 0 0% 100%;
+
+    --card: 210 50% 23%; /* #1a3a5c */
+    --card-foreground: 0 0% 100%;
+
+    --popover: 210 50% 23%;
+    --popover-foreground: 0 0% 100%;
+
+    /* Stripe Purple stays the same */
+    --primary: 244 98% 68%; /* #635bff */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 42% 27%; /* #234567 */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 42% 27%;
+    --muted-foreground: 210 25% 60%; /* #8898aa */
+
+    --accent: 210 42% 27%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 100% 67%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 40% 31%; /* #2d4a6f */
+    --input: 210 40% 31%;
+    --ring: 244 98% 68%;
+
+    /* Custom Semantic Colors */
+    --success: 163 100% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 44 100% 50%;
+    --warning-foreground: 210 55% 15%;
+
+    --info: 203 100% 50%;
+    --info-foreground: 0 0% 100%;
+
+    /* Chart Colors */
+    --chart-1: 244 98% 68%;
+    --chart-2: 163 100% 42%;
+    --chart-3: 203 100% 50%;
+    --chart-4: 44 100% 50%;
+    --chart-5: 0 100% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Hero gradient */
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(244 98% 68%) 0%, hsl(163 100% 42%) 100%);
+  }
+
+  /* Card shimmer effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.1),
+      transparent
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* Glow effects */
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(99, 91, 255, 0.3);
+  }
+
+  .glow-success {
+    box-shadow: 0 0 20px rgba(0, 212, 170, 0.3);
+  }
+
+  /* Typing cursor animation */
+  .cursor-blink {
+    animation: blink 1s infinite;
+  }
+
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* Pulse animation for active states */
+  .pulse-dot {
+    animation: pulse-dot 2s infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.1); }
+  }
+}

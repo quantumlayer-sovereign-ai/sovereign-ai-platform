@@ -4,12 +4,13 @@ Testing Tools
 Automated test execution and coverage analysis
 """
 
-import subprocess
 import json
+import subprocess
+import sys
 import tempfile
-from typing import Dict, Any, Optional, List
 from pathlib import Path
-from datetime import datetime
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
@@ -31,12 +32,12 @@ class TestRunner:
 
     def run_tests(
         self,
-        test_path: Optional[str] = None,
+        test_path: str | None = None,
         coverage: bool = True,
         verbose: bool = False,
-        markers: Optional[List[str]] = None,
+        markers: list[str] | None = None,
         timeout: int = 300
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run pytest tests
 
@@ -60,7 +61,7 @@ class TestRunner:
             }
 
         # Build pytest command
-        cmd = ["python", "-m", "pytest", str(full_test_path)]
+        cmd = [sys.executable, "-m", "pytest", str(full_test_path)]
 
         if verbose:
             cmd.append("-v")
@@ -115,10 +116,10 @@ class TestRunner:
             # Cleanup
             try:
                 Path(json_report).unlink()
-            except:
+            except OSError:
                 pass
 
-    def _parse_results(self, json_file: str, proc_result) -> Dict[str, Any]:
+    def _parse_results(self, json_file: str, proc_result) -> dict[str, Any]:
         """Parse pytest JSON report"""
         try:
             with open(json_file) as f:
@@ -159,7 +160,7 @@ class TestRunner:
             # Fallback to parsing stdout
             return self._parse_stdout(proc_result)
 
-    def _parse_stdout(self, proc_result) -> Dict[str, Any]:
+    def _parse_stdout(self, proc_result) -> dict[str, Any]:
         """Parse pytest stdout when JSON not available"""
         output = proc_result.stdout or ''
 
@@ -179,7 +180,7 @@ class TestRunner:
             'output': output[:5000]
         }
 
-    def _parse_coverage(self) -> Dict[str, Any]:
+    def _parse_coverage(self) -> dict[str, Any]:
         """Parse coverage.json report"""
         coverage_file = self.project_path / "coverage.json"
 
@@ -211,10 +212,10 @@ class TestRunner:
             logger.warning("coverage_parse_failed", error=str(e))
             return {'available': False, 'error': str(e)}
 
-    def run_single_test(self, test_name: str) -> Dict[str, Any]:
+    def run_single_test(self, test_name: str) -> dict[str, Any]:
         """Run a single test by name"""
         cmd = [
-            "python", "-m", "pytest",
+            sys.executable, "-m", "pytest",
             "-v",
             test_name
         ]
@@ -280,12 +281,12 @@ def test_{function_name}_edge_case():
     pass
 '''
 
-    def list_tests(self, test_path: Optional[str] = None) -> Dict[str, Any]:
+    def list_tests(self, test_path: str | None = None) -> dict[str, Any]:
         """List all available tests"""
         test_path = test_path or "tests"
 
         cmd = [
-            "python", "-m", "pytest",
+            sys.executable, "-m", "pytest",
             "--collect-only",
             "-q",
             str(self.project_path / test_path)
@@ -336,13 +337,14 @@ class APITester:
         self,
         method: str,
         path: str,
-        data: Optional[Dict] = None,
-        headers: Optional[Dict] = None,
+        data: dict | None = None,
+        headers: dict | None = None,
         expected_status: int = 200
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Test an API endpoint"""
-        import httpx
         from time import time
+
+        import httpx
 
         url = f"{self.base_url}{path}"
         headers = headers or {}
@@ -379,7 +381,7 @@ class APITester:
                 'error': str(e)
             }
 
-    def run_test_suite(self, tests: List[Dict]) -> Dict[str, Any]:
+    def run_test_suite(self, tests: list[dict]) -> dict[str, Any]:
         """Run a suite of API tests"""
         results = []
 

@@ -1,0 +1,251 @@
+name: Nightly Tests
+
+on:
+  schedule:
+    # Run at 2 AM UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # Extended test suite with all Python versions
+  test-matrix:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-json-report pytest-timeout
+
+      - name: Run full test suite
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=long \
+            --cov=core \
+            --cov=api \
+            --cov=verticals \
+            --cov-report=xml \
+            --timeout=300 \
+            --json-report \
+            --json-report-file=test-results-${{ matrix.python-version }}.json
+        timeout-minutes: 20
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: |
+            test-results-${{ matrix.python-version }}.json
+            coverage.xml
+
+  # Dependency update check
+  dependency-check:
+    name: Check Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check for outdated dependencies
+        run: |
+          pip install pip-audit pipdeptree
+          pip install -r requirements.txt
+
+          echo "=== Dependency Tree ==="
+          pipdeptree
+
+          echo ""
+          echo "=== Outdated Packages ==="
+          pip list --outdated || true
+
+          echo ""
+          echo "=== Security Audit ==="
+          pip-audit || true
+
+  # Performance benchmarks
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache sentence-transformers models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-models-minilm
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-benchmark
+
+      - name: Run benchmarks
+        run: |
+          python -c "
+          import time
+          import statistics
+
+          # Benchmark embedding model load time
+          start = time.time()
+          from core.rag.embeddings import EmbeddingModel
+          model = EmbeddingModel()
+          model.load()
+          load_time = time.time() - start
+          print(f'Embedding model load time: {load_time:.2f}s')
+
+          # Benchmark embedding generation
+          texts = ['This is a test sentence for benchmarking.'] * 100
+          times = []
+          for _ in range(5):
+              start = time.time()
+              model.embed(texts)
+              times.append(time.time() - start)
+
+          avg_time = statistics.mean(times)
+          print(f'Embedding 100 texts avg time: {avg_time:.3f}s ({100/avg_time:.0f} texts/sec)')
+
+          # Benchmark document chunking
+          from core.rag.loader import DocumentLoader
+          loader = DocumentLoader(chunk_size=500, chunk_overlap=50)
+
+          large_text = 'This is a test sentence. ' * 1000
+          from core.rag.loader import Document
+          doc = Document(content=large_text, metadata={'source': 'benchmark'})
+
+          times = []
+          for _ in range(10):
+              start = time.time()
+              chunks = loader.chunk_document(doc)
+              times.append(time.time() - start)
+
+          avg_time = statistics.mean(times)
+          print(f'Chunking large document avg time: {avg_time*1000:.2f}ms ({len(chunks)} chunks)')
+          "
+
+  # Memory and resource usage
+  resource-check:
+    name: Resource Usage Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install memory-profiler psutil
+
+      - name: Check memory usage
+        run: |
+          python -c "
+          import psutil
+          import os
+
+          process = psutil.Process(os.getpid())
+          initial_memory = process.memory_info().rss / 1024 / 1024
+          print(f'Initial memory: {initial_memory:.1f} MB')
+
+          # Load core modules
+          from core.rag.embeddings import EmbeddingModel
+          from core.rag.vectorstore import VectorStore
+          from core.agents.factory import AgentFactory
+          from core.orchestrator.main import Orchestrator
+
+          after_import = process.memory_info().rss / 1024 / 1024
+          print(f'After imports: {after_import:.1f} MB (+{after_import - initial_memory:.1f} MB)')
+
+          # Load embedding model
+          model = EmbeddingModel()
+          model.load()
+
+          after_model = process.memory_info().rss / 1024 / 1024
+          print(f'After model load: {after_model:.1f} MB (+{after_model - after_import:.1f} MB)')
+
+          # Create some embeddings
+          texts = ['Test text'] * 100
+          embeddings = model.embed(texts)
+
+          after_embed = process.memory_info().rss / 1024 / 1024
+          print(f'After embedding: {after_embed:.1f} MB (+{after_embed - after_model:.1f} MB)')
+
+          print(f'\\nTotal memory usage: {after_embed:.1f} MB')
+          "
+
+  # Notify on failure
+  notify:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [test-matrix, dependency-check]
+    if: failure()
+    steps:
+      - name: Create issue on failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Nightly build failed - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            ## Nightly Build Failure
+
+            The nightly build has failed. Please investigate.
+
+            **Workflow Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+
+            **Triggered:** ${new Date().toISOString()}
+            `;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-failure'
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['nightly-failure', 'bug']
+              });
+            }

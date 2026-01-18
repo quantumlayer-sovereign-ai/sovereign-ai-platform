@@ -9,8 +9,9 @@ Supports:
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -22,7 +23,7 @@ class GenerationConfig:
     top_k: int = 50
     do_sample: bool = True
     repetition_penalty: float = 1.1
-    stop_sequences: List[str] = None
+    stop_sequences: list[str] = None
 
     def __post_init__(self):
         if self.stop_sequences is None:
@@ -45,8 +46,8 @@ class ModelInterface(ABC):
     @abstractmethod
     async def generate(
         self,
-        messages: List[Dict[str, str]],
-        config: Optional[GenerationConfig] = None
+        messages: list[dict[str, str]],
+        config: GenerationConfig | None = None
     ) -> str:
         """
         Generate a response from messages
@@ -63,8 +64,8 @@ class ModelInterface(ABC):
     @abstractmethod
     async def generate_stream(
         self,
-        messages: List[Dict[str, str]],
-        config: Optional[GenerationConfig] = None
+        messages: list[dict[str, str]],
+        config: GenerationConfig | None = None
     ) -> AsyncGenerator[str, None]:
         """
         Stream generated tokens
@@ -107,6 +108,6 @@ class ModelInterface(ABC):
 
     @property
     @abstractmethod
-    def model_info(self) -> Dict[str, Any]:
+    def model_info(self) -> dict[str, Any]:
         """Get model information"""
         pass

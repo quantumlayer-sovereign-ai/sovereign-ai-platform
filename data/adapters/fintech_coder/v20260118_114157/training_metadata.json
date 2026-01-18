@@ -1,0 +1,50 @@
+{
+  "role": "fintech_coder",
+  "version": "v20260118_114157",
+  "base_model": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+  "created_at": "2026-01-18T11:41:57.497399",
+  "training_config": {
+    "epochs": 3,
+    "batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.01,
+    "warmup_ratio": 0.03,
+    "max_grad_norm": 0.3,
+    "optimizer": "adamw_torch",
+    "lr_scheduler_type": "cosine",
+    "max_seq_length": 4096,
+    "logging_steps": 10,
+    "save_steps": 100,
+    "save_total_limit": 3,
+    "eval_steps": 50,
+    "eval_strategy": "steps",
+    "fp16": false,
+    "bf16": true,
+    "gradient_checkpointing": true,
+    "optim_bits": 8,
+    "output_dir": "data/adapters",
+    "logging_dir": "logs/tensorboard"
+  },
+  "lora_config": {
+    "r": 32,
+    "lora_alpha": 64,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "lora_dropout": 0.05
+  },
+  "metrics": {
+    "train_runtime": 26.882,
+    "train_samples_per_second": 3.794,
+    "train_steps_per_second": 0.335,
+    "total_flos": 671457883447296.0,
+    "train_loss": 0.9837216271294488
+  }
+}

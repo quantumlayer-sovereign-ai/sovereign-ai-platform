@@ -8,9 +8,9 @@ Components:
 - Embeddings: Sentence transformers
 """
 
+from .embeddings import EmbeddingModel
+from .loader import DocumentLoader
 from .pipeline import RAGPipeline
 from .vectorstore import VectorStore
-from .loader import DocumentLoader
-from .embeddings import EmbeddingModel
 
-__all__ = ["RAGPipeline", "VectorStore", "DocumentLoader", "EmbeddingModel"]
+__all__ = ["DocumentLoader", "EmbeddingModel", "RAGPipeline", "VectorStore"]

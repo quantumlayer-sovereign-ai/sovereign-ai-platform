@@ -8,13 +8,14 @@ Combines:
 - Context augmentation for LLM
 """
 
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import Any, ClassVar
+
 import structlog
 
-from .loader import DocumentLoader, Document, Chunk
 from .embeddings import EmbeddingModel
-from .vectorstore import VectorStore, MultiVerticalStore
+from .loader import Document, DocumentLoader
+from .vectorstore import MultiVerticalStore
 
 logger = structlog.get_logger()
 
@@ -32,11 +33,11 @@ class RAGPipeline:
 
     def __init__(
         self,
-        persist_directory: Optional[str] = None,
+        persist_directory: str | None = None,
         embedding_model: str = "minilm",
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
-        chromadb_host: Optional[str] = None,
+        chromadb_host: str | None = None,
         chromadb_port: int = 8000
     ):
         self.persist_directory = persist_directory
@@ -52,7 +53,7 @@ class RAGPipeline:
             port=chromadb_port
         )
 
-        self.loaders: Dict[str, DocumentLoader] = {}
+        self.loaders: dict[str, DocumentLoader] = {}
 
     def get_loader(self, vertical: str) -> DocumentLoader:
         """Get or create loader for a vertical"""
@@ -69,8 +70,8 @@ class RAGPipeline:
         directory: Path,
         vertical: str,
         recursive: bool = True,
-        extensions: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        extensions: list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Index all documents from a directory
 
@@ -115,8 +116,8 @@ class RAGPipeline:
         self,
         file_path: Path,
         vertical: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Index a single document
 
@@ -153,8 +154,8 @@ class RAGPipeline:
         text: str,
         vertical: str,
         source: str = "direct_input",
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Index raw text content
 
@@ -194,8 +195,8 @@ class RAGPipeline:
         vertical: str,
         n_results: int = 5,
         min_score: float = 0.0,
-        file_types: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        file_types: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Retrieve relevant documents for a query
 
@@ -233,8 +234,8 @@ class RAGPipeline:
         query: str,
         vertical: str,
         n_results: int = 5,
-        context_template: Optional[str] = None
-    ) -> Dict[str, Any]:
+        context_template: str | None = None
+    ) -> dict[str, Any]:
         """
         Retrieve and format context for LLM
 
@@ -331,7 +332,7 @@ Sources used:
 """
         return augmented
 
-    def get_stats(self, vertical: Optional[str] = None) -> Dict[str, Any]:
+    def get_stats(self, vertical: str | None = None) -> dict[str, Any]:
         """Get pipeline statistics"""
         if vertical:
             store = self.multi_store.get_store(vertical)
@@ -356,7 +357,7 @@ class FintechRAG(RAGPipeline):
     - Security best practices
     """
 
-    FINTECH_SOURCES = {
+    FINTECH_SOURCES: ClassVar[dict[str, str]] = {
         "pci_dss": "PCI Data Security Standard",
         "rbi_guidelines": "RBI Payment Aggregator Guidelines",
         "sebi_regulations": "SEBI Regulations",
@@ -364,14 +365,14 @@ class FintechRAG(RAGPipeline):
         "security_practices": "Financial Security Best Practices"
     }
 
-    def __init__(self, persist_directory: Optional[str] = None, **kwargs):
+    def __init__(self, persist_directory: str | None = None, **kwargs):
         super().__init__(
             persist_directory=persist_directory,
             **kwargs
         )
         self.vertical = "fintech"
 
-    def index_compliance_docs(self, docs_directory: Path) -> Dict[str, Any]:
+    def index_compliance_docs(self, docs_directory: Path) -> dict[str, Any]:
         """Index compliance documentation"""
         return self.index_directory(
             directory=docs_directory,
@@ -379,7 +380,7 @@ class FintechRAG(RAGPipeline):
             extensions=[".txt", ".md", ".pdf"]
         )
 
-    def index_code_patterns(self, patterns_directory: Path) -> Dict[str, Any]:
+    def index_code_patterns(self, patterns_directory: Path) -> dict[str, Any]:
         """Index code patterns and examples"""
         return self.index_directory(
             directory=patterns_directory,
@@ -391,7 +392,7 @@ class FintechRAG(RAGPipeline):
         self,
         query: str,
         n_results: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Retrieve compliance-related documents"""
         return self.retrieve(
             query=query,
@@ -404,7 +405,7 @@ class FintechRAG(RAGPipeline):
         self,
         query: str,
         n_results: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Retrieve code examples"""
         return self.retrieve(
             query=query,
@@ -413,7 +414,7 @@ class FintechRAG(RAGPipeline):
             file_types=["python", "java", "go", "typescript"]
         )
 
-    def get_compliance_context(self, query: str) -> Dict[str, Any]:
+    def get_compliance_context(self, query: str) -> dict[str, Any]:
         """Get compliance context for a query"""
         return self.retrieve_with_context(
             query=query,

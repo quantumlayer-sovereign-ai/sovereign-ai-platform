@@ -8,13 +8,13 @@ Complete workflow tests:
 - Multi-agent coordination
 """
 
-import pytest
-import asyncio
 from pathlib import Path
 
-from core.orchestrator import RAGOrchestrator, Orchestrator
-from core.agents.registry import get_registry
+import pytest
+
 from core.agents.factory import AgentFactory
+from core.agents.registry import get_registry
+from core.orchestrator import RAGOrchestrator
 from core.rag.pipeline import FintechRAG
 from core.tools.security_tools import SecurityScanner
 from verticals.fintech.compliance import ComplianceChecker
@@ -194,7 +194,7 @@ class TestRAGOrchestrator:
         if kb_path.exists():
             await orchestrator.index_knowledge_base(str(kb_path), "fintech")
 
-        results = await orchestrator.search_knowledge(
+        _results = await orchestrator.search_knowledge(  # noqa: F841
             query="PCI-DSS encryption requirements",
             vertical="fintech"
         )

@@ -8,14 +8,14 @@ Supports:
 - JSON/YAML configuration files
 """
 
-import os
-import json
-import yaml
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Iterator
-from dataclasses import dataclass, field
 import hashlib
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, ClassVar
+
 import structlog
+import yaml
 
 logger = structlog.get_logger()
 
@@ -24,13 +24,13 @@ logger = structlog.get_logger()
 class Document:
     """Document with content and metadata"""
     content: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    doc_id: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    doc_id: str | None = None
 
     def __post_init__(self):
         if self.doc_id is None:
-            # Generate ID from content hash
-            self.doc_id = hashlib.md5(self.content.encode()).hexdigest()[:12]
+            # Generate ID from content hash (not used for security)
+            self.doc_id = hashlib.md5(self.content.encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 @dataclass
@@ -39,7 +39,7 @@ class Chunk:
     content: str
     doc_id: str
     chunk_id: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -53,7 +53,7 @@ class DocumentLoader:
     Supports recursive directory loading with file type filtering
     """
 
-    SUPPORTED_EXTENSIONS = {
+    SUPPORTED_EXTENSIONS: ClassVar[dict[str, str]] = {
         # Text files
         ".txt": "text",
         ".md": "markdown",
@@ -84,13 +84,13 @@ class DocumentLoader:
         self,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
-        vertical: Optional[str] = None
+        vertical: str | None = None
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.vertical = vertical
 
-    def load_file(self, file_path: Path) -> Optional[Document]:
+    def load_file(self, file_path: Path) -> Document | None:
         """Load a single file"""
         file_path = Path(file_path)
 
@@ -130,7 +130,7 @@ class DocumentLoader:
 
     def _load_text(self, file_path: Path) -> str:
         """Load text file"""
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
             return f.read()
 
     def _load_pdf(self, file_path: Path) -> str:
@@ -155,11 +155,8 @@ class DocumentLoader:
 
     def _load_structured(self, file_path: Path, file_type: str) -> str:
         """Load structured file (JSON/YAML) as formatted text"""
-        with open(file_path, "r", encoding="utf-8") as f:
-            if file_type == "json":
-                data = json.load(f)
-            else:
-                data = yaml.safe_load(f)
+        with open(file_path, encoding="utf-8") as f:
+            data = json.load(f) if file_type == "json" else yaml.safe_load(f)
 
         # Convert to readable text format
         return self._structured_to_text(data)
@@ -192,8 +189,8 @@ class DocumentLoader:
         self,
         directory: Path,
         recursive: bool = True,
-        extensions: Optional[List[str]] = None
-    ) -> List[Document]:
+        extensions: list[str] | None = None
+    ) -> list[Document]:
         """
         Load all documents from a directory
 
@@ -233,7 +230,7 @@ class DocumentLoader:
 
         return documents
 
-    def chunk_document(self, document: Document) -> List[Chunk]:
+    def chunk_document(self, document: Document) -> list[Chunk]:
         """
         Split document into chunks for embedding
 
@@ -273,16 +270,15 @@ class DocumentLoader:
                 if len(para) > self.chunk_size:
                     sentences = para.replace(". ", ".|").replace("! ", "!|").replace("? ", "?|").split("|")
                     for sentence in sentences:
-                        if len(current_chunk) + len(sentence) + 1 > self.chunk_size:
-                            if current_chunk:
-                                chunks.append(Chunk(
-                                    content=current_chunk.strip(),
-                                    doc_id=document.doc_id,
-                                    chunk_id=str(chunk_index),
-                                    metadata={**document.metadata}
-                                ))
-                                chunk_index += 1
-                                current_chunk = ""
+                        if len(current_chunk) + len(sentence) + 1 > self.chunk_size and current_chunk:
+                            chunks.append(Chunk(
+                                content=current_chunk.strip(),
+                                doc_id=document.doc_id,
+                                chunk_id=str(chunk_index),
+                                metadata={**document.metadata}
+                            ))
+                            chunk_index += 1
+                            current_chunk = ""
                         current_chunk += sentence + " "
                 else:
                     current_chunk += para + "\n\n"
@@ -304,7 +300,7 @@ class DocumentLoader:
         self,
         source: Path,
         recursive: bool = True
-    ) -> List[Chunk]:
+    ) -> list[Chunk]:
         """
         Load and chunk documents from a source
 

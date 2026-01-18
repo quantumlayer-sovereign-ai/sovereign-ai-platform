@@ -1,0 +1,321 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # Fast checks - run first
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: |
+          pip install ruff black isort mypy
+
+      - name: Check formatting with Black
+        run: black --check --diff .
+
+      - name: Check import sorting with isort
+        run: isort --check-only --diff .
+
+      - name: Lint with Ruff
+        run: ruff check .
+
+      - name: Type check with mypy
+        run: mypy core/ api/ --ignore-missing-imports --no-error-summary
+        continue-on-error: true  # Don't fail on type errors for now
+
+  # Unit tests - fast, isolated
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-json-report
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ \
+            -v \
+            --tb=short \
+            -m unit \
+            --cov=core \
+            --cov=api \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --json-report \
+            --json-report-file=unit-test-results.json
+
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: |
+            unit-test-results.json
+            coverage.xml
+
+  # Integration tests - test component interactions
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache sentence-transformers models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-models-minilm
+          restore-keys: |
+            ${{ runner.os }}-hf-models-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-json-report
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ \
+            -v \
+            --tb=short \
+            -m integration \
+            --cov=core \
+            --cov=api \
+            --cov-report=xml \
+            --json-report \
+            --json-report-file=integration-test-results.json
+        timeout-minutes: 10
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            integration-test-results.json
+            coverage.xml
+
+  # Contract tests - API schema validation
+  contract-tests:
+    name: Contract Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-json-report
+
+      - name: Run contract tests
+        run: |
+          pytest tests/contract/ \
+            -v \
+            --tb=short \
+            -m contract \
+            --json-report \
+            --json-report-file=contract-test-results.json
+
+      - name: Upload contract test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-test-results
+          path: contract-test-results.json
+
+  # Security scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+
+      - name: Run Bandit security scan
+        run: |
+          bandit -r core/ api/ verticals/ -f json -o bandit-results.json || true
+          bandit -r core/ api/ verticals/ -ll
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          pip install -r requirements.txt
+          safety check --json > safety-results.json || true
+          safety check
+        continue-on-error: true
+
+      - name: Upload security results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-results
+          path: |
+            bandit-results.json
+            safety-results.json
+
+  # Full test suite with coverage
+  full-tests:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, contract-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache sentence-transformers models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-models-minilm
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio pytest-json-report
+
+      - name: Run full test suite
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --cov=core \
+            --cov=api \
+            --cov=verticals \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-fail-under=70 \
+            --json-report \
+            --json-report-file=full-test-results.json
+        timeout-minutes: 15
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            htmlcov/
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-test-results
+          path: full-test-results.json
+
+  # Coverage reporting to PR
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: full-tests
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Code Coverage Summary
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: coverage.xml
+          badge: true
+          format: markdown
+          output: both
+          thresholds: '60 80'
+
+      - name: Add Coverage PR Comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: github.event_name == 'pull_request'
+        with:
+          recreate: true
+          path: code-coverage-results.md

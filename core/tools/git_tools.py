@@ -4,11 +4,10 @@ Git Operations Tools
 Safe git operations for code management
 """
 
-import os
 import subprocess
-from typing import Dict, Any, Optional, List
 from pathlib import Path
-from datetime import datetime
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
@@ -35,9 +34,9 @@ class GitOperations:
         if not git_dir.exists():
             self.init()
 
-    def _run_git(self, *args, check: bool = True) -> Dict[str, Any]:
+    def _run_git(self, *args, check: bool = True) -> dict[str, Any]:
         """Run a git command"""
-        cmd = ["git"] + list(args)
+        cmd = ["git", *args]
 
         try:
             result = subprocess.run(
@@ -74,7 +73,7 @@ class GitOperations:
                 'command': ' '.join(cmd)
             }
 
-    def init(self, bare: bool = False) -> Dict[str, Any]:
+    def init(self, bare: bool = False) -> dict[str, Any]:
         """Initialize a new repository"""
         self.repo_path.mkdir(parents=True, exist_ok=True)
         args = ["init"]
@@ -82,7 +81,7 @@ class GitOperations:
             args.append("--bare")
         return self._run_git(*args)
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """Get repository status"""
         result = self._run_git("status", "--porcelain", "-b")
 
@@ -93,7 +92,7 @@ class GitOperations:
 
         # Parse status
         branch_line = lines[0] if lines and lines[0].startswith('##') else None
-        file_lines = [l for l in lines if not l.startswith('##')]
+        file_lines = [line for line in lines if not line.startswith('##')]
 
         staged = []
         modified = []
@@ -121,13 +120,13 @@ class GitOperations:
             'clean': len(staged) == 0 and len(modified) == 0 and len(untracked) == 0
         }
 
-    def add(self, files: Optional[List[str]] = None) -> Dict[str, Any]:
+    def add(self, files: list[str] | None = None) -> dict[str, Any]:
         """Stage files for commit"""
         if files is None:
             return self._run_git("add", "-A")
         return self._run_git("add", *files)
 
-    def commit(self, message: str, author: Optional[str] = None) -> Dict[str, Any]:
+    def commit(self, message: str, author: str | None = None) -> dict[str, Any]:
         """Create a commit"""
         args = ["commit", "-m", message]
         if author:
@@ -143,7 +142,7 @@ class GitOperations:
 
         return result
 
-    def log(self, count: int = 10, format_str: Optional[str] = None) -> Dict[str, Any]:
+    def log(self, count: int = 10, format_str: str | None = None) -> dict[str, Any]:
         """Get commit log"""
         format_str = format_str or "%H|%an|%ae|%at|%s"
         result = self._run_git("log", f"-{count}", f"--format={format_str}")
@@ -171,7 +170,7 @@ class GitOperations:
             'count': len(commits)
         }
 
-    def diff(self, staged: bool = False, file: Optional[str] = None) -> Dict[str, Any]:
+    def diff(self, staged: bool = False, file: str | None = None) -> dict[str, Any]:
         """Get diff"""
         args = ["diff"]
         if staged:
@@ -187,7 +186,7 @@ class GitOperations:
 
         return result
 
-    def branch(self, name: Optional[str] = None, delete: bool = False) -> Dict[str, Any]:
+    def branch(self, name: str | None = None, delete: bool = False) -> dict[str, Any]:
         """Create, delete, or list branches"""
         if name is None:
             # List branches
@@ -208,7 +207,7 @@ class GitOperations:
 
         return self._run_git("branch", name)
 
-    def checkout(self, target: str, create: bool = False) -> Dict[str, Any]:
+    def checkout(self, target: str, create: bool = False) -> dict[str, Any]:
         """Checkout branch or commit"""
         args = ["checkout"]
         if create:
@@ -216,7 +215,7 @@ class GitOperations:
         args.append(target)
         return self._run_git(*args)
 
-    def merge(self, branch: str, no_ff: bool = False) -> Dict[str, Any]:
+    def merge(self, branch: str, no_ff: bool = False) -> dict[str, Any]:
         """Merge a branch"""
         args = ["merge"]
         if no_ff:
@@ -224,14 +223,14 @@ class GitOperations:
         args.append(branch)
         return self._run_git(*args)
 
-    def reset(self, mode: str = "mixed", target: str = "HEAD") -> Dict[str, Any]:
+    def reset(self, mode: str = "mixed", target: str = "HEAD") -> dict[str, Any]:
         """Reset to a target"""
         if mode not in ["soft", "mixed", "hard"]:
             return {'success': False, 'error': f'Invalid reset mode: {mode}'}
 
         return self._run_git("reset", f"--{mode}", target)
 
-    def stash(self, pop: bool = False, message: Optional[str] = None) -> Dict[str, Any]:
+    def stash(self, pop: bool = False, message: str | None = None) -> dict[str, Any]:
         """Stash or unstash changes"""
         if pop:
             return self._run_git("stash", "pop")
@@ -242,7 +241,7 @@ class GitOperations:
 
         return self._run_git(*args)
 
-    def get_file_history(self, file_path: str, count: int = 10) -> Dict[str, Any]:
+    def get_file_history(self, file_path: str, count: int = 10) -> dict[str, Any]:
         """Get commit history for a specific file"""
         result = self._run_git(
             "log", f"-{count}",
@@ -272,13 +271,13 @@ class GitOperations:
             'commits': commits
         }
 
-    def show(self, commit: str, file: Optional[str] = None) -> Dict[str, Any]:
+    def show(self, commit: str, file: str | None = None) -> dict[str, Any]:
         """Show commit details or file at commit"""
         if file:
             return self._run_git("show", f"{commit}:{file}")
         return self._run_git("show", commit, "--stat")
 
-    def blame(self, file_path: str) -> Dict[str, Any]:
+    def blame(self, file_path: str) -> dict[str, Any]:
         """Get blame information for a file"""
         result = self._run_git("blame", "--porcelain", file_path)
 

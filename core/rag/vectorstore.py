@@ -8,12 +8,12 @@ Supports:
 - Similarity search with scores
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
+from typing import Any
+
 import structlog
 
-from .loader import Chunk
 from .embeddings import EmbeddingModel
+from .loader import Chunk
 
 logger = structlog.get_logger()
 
@@ -32,9 +32,9 @@ class VectorStore:
     def __init__(
         self,
         collection_name: str = "default",
-        persist_directory: Optional[str] = None,
-        embedding_model: Optional[EmbeddingModel] = None,
-        host: Optional[str] = None,
+        persist_directory: str | None = None,
+        embedding_model: EmbeddingModel | None = None,
+        host: str | None = None,
         port: int = 8000
     ):
         self.collection_name = collection_name
@@ -91,7 +91,7 @@ class VectorStore:
 
     def add_chunks(
         self,
-        chunks: List[Chunk],
+        chunks: list[Chunk],
         batch_size: int = 100
     ) -> int:
         """
@@ -145,9 +145,9 @@ class VectorStore:
         self,
         query: str,
         n_results: int = 5,
-        where: Optional[Dict[str, Any]] = None,
-        where_document: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        where: dict[str, Any] | None = None,
+        where_document: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Search for relevant documents
 
@@ -194,7 +194,7 @@ class VectorStore:
         query: str,
         vertical: str,
         n_results: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search within a specific vertical"""
         return self.search(
             query=query,
@@ -207,7 +207,7 @@ class VectorStore:
         query: str,
         file_type: str,
         n_results: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search within specific file types"""
         return self.search(
             query=query,
@@ -234,7 +234,7 @@ class VectorStore:
         self.collection = None
         logger.info("collection_deleted", name=self.collection_name)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get collection statistics"""
         if not self.is_connected:
             self.connect()
@@ -246,7 +246,7 @@ class VectorStore:
             "remote": self.host is not None
         }
 
-    def list_collections(self) -> List[str]:
+    def list_collections(self) -> list[str]:
         """List all collections"""
         if not self.is_connected:
             self.connect()
@@ -264,16 +264,16 @@ class MultiVerticalStore:
 
     def __init__(
         self,
-        persist_directory: Optional[str] = None,
-        embedding_model: Optional[EmbeddingModel] = None,
-        host: Optional[str] = None,
+        persist_directory: str | None = None,
+        embedding_model: EmbeddingModel | None = None,
+        host: str | None = None,
         port: int = 8000
     ):
         self.persist_directory = persist_directory
         self.embedding_model = embedding_model or EmbeddingModel()
         self.host = host
         self.port = port
-        self.stores: Dict[str, VectorStore] = {}
+        self.stores: dict[str, VectorStore] = {}
 
     def get_store(self, vertical: str) -> VectorStore:
         """Get or create store for a vertical"""
@@ -292,9 +292,9 @@ class MultiVerticalStore:
     def search_across_verticals(
         self,
         query: str,
-        verticals: List[str],
+        verticals: list[str],
         n_results_per_vertical: int = 3
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    ) -> dict[str, list[dict[str, Any]]]:
         """Search across multiple verticals"""
         results = {}
 
@@ -307,7 +307,7 @@ class MultiVerticalStore:
 
         return results
 
-    def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_stats(self) -> dict[str, dict[str, Any]]:
         """Get stats for all verticals"""
         return {
             vertical: store.get_stats()
