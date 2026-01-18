@@ -16,10 +16,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datetime import datetime
 
 import structlog
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from api.auth import JWTBearer, UserContext, create_dev_token, DEV_MODE
+from api.ratelimit import RateLimitDependency, release_concurrent_slot
 from core.agents.registry import get_registry
 from core.models.qwen import QwenModel
 from core.orchestrator import RAGOrchestrator
@@ -38,14 +40,27 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS middleware
+# CORS configuration - hardened for production
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "").split(",")
+if not ALLOWED_ORIGINS or ALLOWED_ORIGINS == [""]:
+    ALLOWED_ORIGINS = ["http://localhost:3000"]  # Dev default
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_cleanup_middleware(request: Request, call_next):
+    """Release rate limit concurrent slots after response"""
+    response = await call_next(request)
+    await release_concurrent_slot(request)
+    return response
+
 
 # Global instances
 model: QwenModel | None = None
@@ -162,7 +177,7 @@ async def shutdown_event():
     logger.info("sovereign_ai_shutdown")
 
 
-# Health endpoint
+# Health endpoint (public - no auth required)
 @app.get("/health", response_model=HealthResponse)
 async def health():
     """Health check endpoint"""
@@ -178,9 +193,30 @@ async def health():
     )
 
 
-# Load model endpoint
+# Auth token endpoint (dev mode only)
+class TokenRequest(BaseModel):
+    user_id: str = Field("dev-user", description="User ID for the token")
+    email: str = Field("dev@example.com", description="Email for the token")
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+
+@app.post("/auth/token", response_model=TokenResponse)
+async def get_token(request: TokenRequest):
+    """
+    Generate a JWT token (dev mode only)
+
+    This endpoint is only available when DEV_MODE=true
+    """
+    return create_dev_token(user_id=request.user_id, email=request.email)
+
+
+# Load model endpoint (protected)
 @app.post("/model/load")
-async def load_model():
+async def load_model(user: UserContext = Depends(JWTBearer())):
     """Load the AI model into memory"""
     global model, orchestrator
 
@@ -194,9 +230,9 @@ async def load_model():
     return {"status": "loaded", "info": model.model_info}
 
 
-# Unload model endpoint
+# Unload model endpoint (protected)
 @app.post("/model/unload")
-async def unload_model():
+async def unload_model(user: UserContext = Depends(JWTBearer())):
     """Unload the AI model from memory"""
     global model
 
@@ -207,18 +243,22 @@ async def unload_model():
     return {"status": "unloaded"}
 
 
-# Model info endpoint
+# Model info endpoint (protected)
 @app.get("/model/info")
-async def model_info():
+async def model_info(user: UserContext = Depends(JWTBearer())):
     """Get model information"""
     if not model:
         raise HTTPException(status_code=503, detail="Model not initialized")
     return model.model_info
 
 
-# Execute task endpoint
+# Execute task endpoint (protected + rate limited)
 @app.post("/task/execute", response_model=TaskResponse)
-async def execute_task(request: TaskRequest):
+async def execute_task(
+    request: TaskRequest,
+    user: UserContext = Depends(JWTBearer()),
+    rate_limit: dict = Depends(RateLimitDependency(check_concurrent=True))
+):
     """Execute a task using AI agents"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -255,9 +295,13 @@ async def execute_task(request: TaskRequest):
     )
 
 
-# List roles endpoint
+# List roles endpoint (protected)
 @app.get("/roles")
-async def list_roles(vertical: str | None = None, region: str | None = None):
+async def list_roles(
+    vertical: str | None = None,
+    region: str | None = None,
+    user: UserContext = Depends(JWTBearer())
+):
     """List available agent roles"""
     registry = get_registry()
 
@@ -280,9 +324,9 @@ async def list_roles(vertical: str | None = None, region: str | None = None):
     }
 
 
-# Get role details endpoint
+# Get role details endpoint (protected)
 @app.get("/roles/{role_name}")
-async def get_role(role_name: str):
+async def get_role(role_name: str, user: UserContext = Depends(JWTBearer())):
     """Get details for a specific role"""
     registry = get_registry()
     role = registry.get_role(role_name)
@@ -293,9 +337,13 @@ async def get_role(role_name: str):
     return role
 
 
-# Compliance check endpoint
+# Compliance check endpoint (protected + rate limited)
 @app.post("/compliance/check")
-async def check_compliance(request: ComplianceRequest):
+async def check_compliance(
+    request: ComplianceRequest,
+    user: UserContext = Depends(JWTBearer()),
+    rate_limit: dict = Depends(RateLimitDependency())
+):
     """Check code for compliance issues"""
     # Validate region
     region = (request.region or "india").lower()
@@ -335,9 +383,9 @@ async def check_compliance(request: ComplianceRequest):
     }
 
 
-# Orchestrator stats endpoint
+# Orchestrator stats endpoint (protected)
 @app.get("/stats")
-async def get_stats():
+async def get_stats(user: UserContext = Depends(JWTBearer())):
     """Get platform statistics"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -349,9 +397,9 @@ async def get_stats():
     }
 
 
-# Task history endpoint
+# Task history endpoint (protected)
 @app.get("/tasks/history")
-async def task_history(limit: int = 10):
+async def task_history(limit: int = 10, user: UserContext = Depends(JWTBearer())):
     """Get task execution history"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -363,9 +411,9 @@ async def task_history(limit: int = 10):
     }
 
 
-# Audit trail endpoint
+# Audit trail endpoint (protected)
 @app.get("/audit")
-async def get_audit_trail():
+async def get_audit_trail(user: UserContext = Depends(JWTBearer())):
     """Get complete audit trail for compliance"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -376,9 +424,12 @@ async def get_audit_trail():
     }
 
 
-# RAG endpoints
+# RAG endpoints (protected)
 @app.post("/rag/index")
-async def index_knowledge_base(request: RAGIndexRequest):
+async def index_knowledge_base(
+    request: RAGIndexRequest,
+    user: UserContext = Depends(JWTBearer())
+):
     """Index documents into the RAG knowledge base"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -399,7 +450,11 @@ async def index_knowledge_base(request: RAGIndexRequest):
 
 
 @app.post("/rag/search")
-async def search_knowledge(request: RAGSearchRequest):
+async def search_knowledge(
+    request: RAGSearchRequest,
+    user: UserContext = Depends(JWTBearer()),
+    rate_limit: dict = Depends(RateLimitDependency())
+):
     """Search the RAG knowledge base"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -421,7 +476,7 @@ async def search_knowledge(request: RAGSearchRequest):
 
 
 @app.get("/rag/stats")
-async def rag_stats():
+async def rag_stats(user: UserContext = Depends(JWTBearer())):
     """Get RAG pipeline statistics"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -429,9 +484,13 @@ async def rag_stats():
     return orchestrator.get_rag_stats()
 
 
-# Security scanning endpoint
+# Security scanning endpoint (protected + rate limited)
 @app.post("/security/scan")
-async def scan_code(request: SecurityScanRequest):
+async def scan_code(
+    request: SecurityScanRequest,
+    user: UserContext = Depends(JWTBearer()),
+    rate_limit: dict = Depends(RateLimitDependency())
+):
     """Scan code for security vulnerabilities"""
     if not security_scanner:
         raise HTTPException(status_code=503, detail="Security scanner not initialized")

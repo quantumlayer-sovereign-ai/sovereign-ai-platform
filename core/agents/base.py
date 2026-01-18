@@ -21,6 +21,11 @@ import structlog
 
 logger = structlog.get_logger()
 
+# Memory management constants
+MAX_STATE_HISTORY_SIZE = 100
+MAX_ACTION_LOG_SIZE = 100
+DEFAULT_EXECUTION_TIMEOUT = 60.0  # seconds
+
 
 class AgentState(Enum):
     """Agent lifecycle states"""
@@ -103,22 +108,28 @@ class Agent:
         return self.role.get("system_prompt", "You are a helpful AI assistant.")
 
     def _log_state_change(self, new_state: AgentState):
-        """Log state changes for audit trail"""
+        """Log state changes for audit trail (bounded)"""
         self.state_history.append({
             "from_state": self.state.value if hasattr(self, 'state') else None,
             "to_state": new_state.value,
             "timestamp": datetime.now().isoformat()
         })
+        # Memory management: bound the state history
+        if len(self.state_history) > MAX_STATE_HISTORY_SIZE:
+            self.state_history = self.state_history[-MAX_STATE_HISTORY_SIZE:]
         self.state = new_state
 
     def _log_action(self, action: str, details: dict[str, Any]):
-        """Log actions for audit trail"""
+        """Log actions for audit trail (bounded)"""
         self.action_log.append({
             "action": action,
             "details": details,
             "timestamp": datetime.now().isoformat(),
             "role": self.role_name
         })
+        # Memory management: bound the action log
+        if len(self.action_log) > MAX_ACTION_LOG_SIZE:
+            self.action_log = self.action_log[-MAX_ACTION_LOG_SIZE:]
 
     def assume_role(self, role: dict[str, Any]):
         """
@@ -146,44 +157,67 @@ class Agent:
         })
         logger.info("role_switched", agent_id=self.agent_id, from_role=old_role, to_role=self.role_name)
 
-    async def execute(self, context: AgentContext) -> dict[str, Any]:
+    async def execute(
+        self,
+        context: AgentContext,
+        timeout_seconds: float = DEFAULT_EXECUTION_TIMEOUT
+    ) -> dict[str, Any]:
         """
         Execute a task with the current role
 
         Args:
             context: AgentContext with task details
+            timeout_seconds: Maximum execution time in seconds (default 60)
 
         Returns:
             Result dict with output and metadata
         """
         self._log_state_change(AgentState.WORKING)
-        self._log_action("execute_start", {"task": context.task[:100]})
+        self._log_action("execute_start", {"task": context.task[:100], "timeout": timeout_seconds})
 
         try:
-            # Build messages for the model
-            messages = self._build_messages(context)
+            async with asyncio.timeout(timeout_seconds):
+                # Build messages for the model
+                messages = self._build_messages(context)
 
-            # Execute with model
-            if self.model:
-                response = await self._call_model(messages)
-            else:
-                response = f"[No model attached] Would process: {context.task}"
+                # Execute with model
+                if self.model:
+                    response = await self._call_model(messages)
+                else:
+                    response = f"[No model attached] Would process: {context.task}"
 
-            # Check if we need to use tools
-            tool_results = await self._process_tool_calls(response)
+                # Check if we need to use tools
+                tool_results = await self._process_tool_calls(response)
 
-            result = {
+                result = {
+                    "agent_id": self.agent_id,
+                    "role": self.role_name,
+                    "response": response,
+                    "tool_results": tool_results,
+                    "success": True
+                }
+
+                self._log_state_change(AgentState.COMPLETED)
+                self._log_action("execute_complete", {"success": True})
+
+                return result
+
+        except asyncio.TimeoutError:
+            self._log_state_change(AgentState.FAILED)
+            self._log_action("execute_timeout", {"timeout_seconds": timeout_seconds})
+            logger.error(
+                "agent_execution_timeout",
+                agent_id=self.agent_id,
+                timeout=timeout_seconds
+            )
+
+            return {
                 "agent_id": self.agent_id,
                 "role": self.role_name,
-                "response": response,
-                "tool_results": tool_results,
-                "success": True
+                "response": None,
+                "error": f"Agent execution timed out after {timeout_seconds}s",
+                "success": False
             }
-
-            self._log_state_change(AgentState.COMPLETED)
-            self._log_action("execute_complete", {"success": True})
-
-            return result
 
         except Exception as e:
             self._log_state_change(AgentState.FAILED)

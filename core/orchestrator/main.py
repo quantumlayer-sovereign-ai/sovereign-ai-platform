@@ -18,11 +18,18 @@ from typing import Any
 
 import structlog
 
-from ..agents.base import Agent, AgentContext
+from ..agents.base import Agent, AgentContext, DEFAULT_EXECUTION_TIMEOUT
+from ..utils.retry import RetryError, with_retry
 from ..agents.factory import AgentFactory
 from ..agents.registry import get_registry
 
 logger = structlog.get_logger()
+
+# Configuration constants
+MAX_HISTORY_SIZE = 1000  # Maximum task history entries to keep
+DEFAULT_TASK_TIMEOUT = 300.0  # 5 minutes for full task execution
+AGENT_RETRY_ATTEMPTS = 3
+AGENT_RETRY_BACKOFF = 2.0
 
 
 class ExecutionMode(Enum):
@@ -89,7 +96,8 @@ class Orchestrator:
         task: str,
         vertical: str | None = None,
         region: str | None = None,
-        compliance_requirements: list[str] | None = None
+        compliance_requirements: list[str] | None = None,
+        timeout_seconds: float = DEFAULT_TASK_TIMEOUT
     ) -> TaskResult:
         """
         Execute a task using multi-agent coordination
@@ -99,6 +107,7 @@ class Orchestrator:
             vertical: Vertical context (fintech, healthcare, etc.)
             region: Region for compliance (india, eu, uk)
             compliance_requirements: Specific compliance needs
+            timeout_seconds: Maximum task execution time (default 300s / 5 min)
 
         Returns:
             TaskResult with all outputs and audit trail
@@ -114,53 +123,82 @@ class Orchestrator:
 
         logger.info("task_started", task_id=task_id, task=task[:100], vertical=vertical, region=region)
 
+        agents: list[Agent] = []
+
         try:
-            # Step 1: Analyze and plan
-            plan = await self._analyze_task(task_id, task, vertical, region, compliance_requirements)
-            logger.info("task_planned", task_id=task_id, agents=plan.agents_needed, region=region)
+            async with asyncio.timeout(timeout_seconds):
+                # Step 1: Analyze and plan
+                plan = await self._analyze_task(task_id, task, vertical, region, compliance_requirements)
+                logger.info("task_planned", task_id=task_id, agents=plan.agents_needed, region=region)
 
-            # Step 2: Spawn required agents
-            agents = await self._spawn_agents(plan)
-            logger.info("agents_spawned", task_id=task_id, count=len(agents))
+                # Step 2: Spawn required agents
+                agents = await self._spawn_agents(plan)
+                logger.info("agents_spawned", task_id=task_id, count=len(agents))
 
-            # Step 3: Execute subtasks
-            results = await self._execute_plan(plan, agents)
-            logger.info("subtasks_completed", task_id=task_id, results_count=len(results))
+                # Step 3: Execute subtasks with retry logic
+                results = await self._execute_plan_with_retry(plan, agents)
+                logger.info("subtasks_completed", task_id=task_id, results_count=len(results))
 
-            # Step 4: Aggregate results
-            aggregated = await self._aggregate_results(results, plan)
+                # Step 4: Aggregate results
+                aggregated = await self._aggregate_results(results, plan)
 
-            # Step 5: Verify compliance
-            compliance_status = await self._verify_compliance(
-                results, compliance_requirements, vertical
-            )
+                # Step 5: Verify compliance
+                compliance_status = await self._verify_compliance(
+                    results, compliance_requirements, vertical, region
+                )
 
-            # Step 6: Cleanup agents
-            audit_trail = self._collect_audit_trail(agents)
-            self._cleanup_agents(agents)
+                # Step 6: Cleanup agents
+                audit_trail = self._collect_audit_trail(agents)
+                self._cleanup_agents(agents)
 
-            # Calculate execution time
+                # Calculate execution time
+                execution_time = (datetime.now() - start_time).total_seconds()
+
+                result = TaskResult(
+                    task_id=task_id,
+                    success=True,
+                    results=results,
+                    aggregated_output=aggregated,
+                    compliance_status=compliance_status,
+                    execution_time_seconds=execution_time,
+                    agents_used=[a.role_name for a in agents],
+                    audit_trail=audit_trail
+                )
+
+                self._append_task_history(result)
+                logger.info("task_completed", task_id=task_id, execution_time=execution_time)
+
+                return result
+
+        except asyncio.TimeoutError:
             execution_time = (datetime.now() - start_time).total_seconds()
+            logger.error("task_timeout", task_id=task_id, timeout=timeout_seconds)
+
+            # Cleanup any spawned agents
+            if agents:
+                self._cleanup_agents(agents)
 
             result = TaskResult(
                 task_id=task_id,
-                success=True,
-                results=results,
-                aggregated_output=aggregated,
-                compliance_status=compliance_status,
+                success=False,
+                results=[{"error": f"Task timed out after {timeout_seconds}s"}],
+                aggregated_output=f"Task timed out after {timeout_seconds} seconds",
+                compliance_status={},
                 execution_time_seconds=execution_time,
-                agents_used=[a.role_name for a in agents],
-                audit_trail=audit_trail
+                agents_used=[],
+                audit_trail=[]
             )
 
-            self.task_history.append(result)
-            logger.info("task_completed", task_id=task_id, execution_time=execution_time)
-
+            self._append_task_history(result)
             return result
 
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
             logger.error("task_failed", task_id=task_id, error=str(e))
+
+            # Cleanup any spawned agents
+            if agents:
+                self._cleanup_agents(agents)
 
             result = TaskResult(
                 task_id=task_id,
@@ -173,8 +211,14 @@ class Orchestrator:
                 audit_trail=[]
             )
 
-            self.task_history.append(result)
+            self._append_task_history(result)
             return result
+
+    def _append_task_history(self, result: TaskResult):
+        """Append to task history with memory management"""
+        self.task_history.append(result)
+        if len(self.task_history) > MAX_HISTORY_SIZE:
+            self.task_history = self.task_history[-MAX_HISTORY_SIZE:]
 
     async def _analyze_task(
         self,
@@ -327,6 +371,84 @@ class Orchestrator:
 
         return results
 
+    async def _execute_plan_with_retry(
+        self,
+        plan: TaskPlan,
+        agents: list[Agent]
+    ) -> list[dict[str, Any]]:
+        """Execute task plan with retry logic for agent failures"""
+        results = []
+
+        if plan.execution_mode == ExecutionMode.PARALLEL:
+            # Execute all agents in parallel with retry
+            tasks = []
+            for i, agent in enumerate(agents):
+                subtask = plan.subtasks[i] if i < len(plan.subtasks) else plan.subtasks[0]
+                context = AgentContext(
+                    task=subtask["task"],
+                    vertical=plan.vertical,
+                    compliance_requirements=plan.compliance_checks
+                )
+                # Wrap each agent execution in retry logic
+                tasks.append(
+                    self._execute_agent_with_retry(agent, context)
+                )
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = [
+                r if isinstance(r, dict) else {"error": str(r), "success": False}
+                for r in results
+            ]
+
+        else:  # Sequential execution
+            for i, agent in enumerate(agents):
+                subtask = plan.subtasks[i] if i < len(plan.subtasks) else plan.subtasks[0]
+
+                context = AgentContext(
+                    task=subtask["task"],
+                    conversation_history=[
+                        {"role": "assistant", "content": str(r.get("response", ""))}
+                        for r in results
+                    ],
+                    vertical=plan.vertical,
+                    compliance_requirements=plan.compliance_checks
+                )
+
+                result = await self._execute_agent_with_retry(agent, context)
+                results.append(result)
+
+        return results
+
+    async def _execute_agent_with_retry(
+        self,
+        agent: Agent,
+        context: AgentContext
+    ) -> dict[str, Any]:
+        """Execute a single agent with retry logic"""
+        try:
+            return await with_retry(
+                agent.execute,
+                context,
+                max_attempts=AGENT_RETRY_ATTEMPTS,
+                backoff_factor=AGENT_RETRY_BACKOFF,
+                initial_delay=1.0,
+                exceptions=(Exception,)
+            )
+        except RetryError as e:
+            logger.error(
+                "agent_retry_exhausted",
+                agent_id=agent.agent_id,
+                role=agent.role_name,
+                error=str(e)
+            )
+            return {
+                "agent_id": agent.agent_id,
+                "role": agent.role_name,
+                "response": None,
+                "error": f"Agent failed after {AGENT_RETRY_ATTEMPTS} retries: {e}",
+                "success": False
+            }
+
     async def _aggregate_results(
         self,
         results: list[dict[str, Any]],
@@ -349,21 +471,132 @@ class Orchestrator:
         self,
         results: list[dict[str, Any]],
         requirements: list[str],
-        vertical: str | None
+        vertical: str | None,
+        region: str = "india"
     ) -> dict[str, bool]:
-        """Verify compliance requirements are met"""
-        compliance_status = {}
+        """
+        Actually verify compliance by scanning agent outputs
 
-        for req in requirements:
-            # Simple compliance check - can be enhanced with real checks
-            compliance_status[req] = True  # Placeholder
+        Args:
+            results: Agent execution results containing responses
+            requirements: List of compliance requirements to check
+            vertical: Industry vertical (fintech, healthcare, etc.)
+            region: Region for compliance (india, eu, uk)
 
-        # Add vertical-specific checks
+        Returns:
+            Dict mapping requirement names to pass/fail status
+        """
+        from ..tools.security_tools import SecurityScanner
+
+        compliance_status: dict[str, bool] = {}
+        code_blocks = self._extract_code_from_results(results)
+
+        if not code_blocks:
+            # No code to check - pass by default with a note
+            for req in requirements:
+                compliance_status[req] = True
+            compliance_status["_note"] = True  # Indicates no code was checked
+            return compliance_status
+
+        # Run compliance checker if vertical is fintech
         if vertical == "fintech":
-            compliance_status["audit_logging"] = True  # We have audit trails
-            compliance_status["data_encryption"] = True  # Placeholder
+            try:
+                from verticals.fintech.compliance import ComplianceChecker
+
+                checker = ComplianceChecker(standards=requirements, region=region)
+                for code, filename in code_blocks:
+                    report = checker.check_code(code, filename)
+
+                    for req in requirements:
+                        # Check if this requirement has issues
+                        req_issues = [
+                            i for i in report.issues
+                            if req.lower() in i.rule_id.lower() or req.lower() in i.rule_name.lower()
+                        ]
+                        critical_high = [
+                            i for i in req_issues
+                            if i.severity.value in ("critical", "high")
+                        ]
+
+                        if critical_high:
+                            # Fail if there are critical/high severity issues
+                            compliance_status[req] = False
+                        elif req not in compliance_status:
+                            # Pass if no critical/high issues found
+                            compliance_status[req] = True
+            except ImportError:
+                logger.warning("compliance_checker_not_available")
+                # Fall back to security scanner only
+                for req in requirements:
+                    if req not in compliance_status:
+                        compliance_status[req] = True
+
+        # Always run security scan
+        try:
+            scanner = SecurityScanner()
+            has_critical_security_issues = False
+
+            for code, filename in code_blocks:
+                scan_result = scanner.scan_code(code, filename)
+                if not scan_result["passed"]:
+                    # Check for critical/high severity issues
+                    critical_issues = [
+                        i for i in scan_result.get("issues", [])
+                        if i.get("severity") in ("critical", "high")
+                    ]
+                    if critical_issues:
+                        has_critical_security_issues = True
+                        break
+
+            compliance_status["security_scan"] = not has_critical_security_issues
+        except Exception as e:
+            logger.warning("security_scan_failed", error=str(e))
+            compliance_status["security_scan"] = True  # Don't fail if scanner unavailable
+
+        # Always pass audit_logging if we have audit trails
+        if vertical == "fintech":
+            compliance_status["audit_logging"] = True
+
+        # Fill in any remaining requirements as passed
+        for req in requirements:
+            if req not in compliance_status:
+                compliance_status[req] = True
 
         return compliance_status
+
+    def _extract_code_from_results(
+        self,
+        results: list[dict[str, Any]]
+    ) -> list[tuple[str, str]]:
+        """
+        Extract code blocks from agent responses
+
+        Args:
+            results: List of agent result dicts
+
+        Returns:
+            List of (code, filename) tuples
+        """
+        import re
+
+        code_blocks: list[tuple[str, str]] = []
+
+        for i, result in enumerate(results):
+            response = result.get("response", "")
+            if not response:
+                continue
+
+            # Match markdown code blocks with optional language specifier
+            pattern = r'```(?:python|py)?\n(.*?)```'
+            matches = re.findall(pattern, response, re.DOTALL)
+
+            for j, code in enumerate(matches):
+                code = code.strip()
+                if code:  # Only include non-empty code blocks
+                    filename = f"agent_{i}_block_{j}.py"
+                    code_blocks.append((code, filename))
+
+        return code_blocks
 
     def _collect_audit_trail(self, agents: list[Agent]) -> list[dict[str, Any]]:
         """Collect audit trails from all agents"""

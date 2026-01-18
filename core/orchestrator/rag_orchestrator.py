@@ -156,7 +156,7 @@ class RAGOrchestrator(Orchestrator):
 
             # Step 7: Verify compliance
             compliance_status = await self._verify_compliance_with_rag(
-                results, compliance_requirements, vertical, rag_context
+                results, compliance_requirements, vertical, rag_context, region
             )
 
             # Step 8: Cleanup
@@ -395,10 +395,11 @@ Apply the above context when generating your response. Cite sources where applic
         results: list[dict[str, Any]],
         requirements: list[str],
         vertical: str | None,
-        rag_context: RAGContext | None
+        rag_context: RAGContext | None,
+        region: str = "india"
     ) -> dict[str, bool]:
         """Verify compliance with RAG-backed checks"""
-        compliance_status = await self._verify_compliance(results, requirements, vertical)
+        compliance_status = await self._verify_compliance(results, requirements, vertical, region)
 
         # Enhanced checks based on RAG context
         if rag_context:

@@ -9,6 +9,14 @@ authors = [
     {name = "Satish", email = "satish@example.com"}
 ]
 keywords = ["ai", "agents", "fintech", "compliance", "rag"]
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "structlog>=23.0.0",
+    "pydantic>=2.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
