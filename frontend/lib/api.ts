@@ -298,7 +298,14 @@ export const api = {
       headers: getHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to fetch stats');
-    return res.json();
+    const data = await res.json();
+    // Transform backend response to frontend expected format
+    return {
+      tasks_today: data.orchestrator?.total_tasks ?? 0,
+      success_rate: data.orchestrator?.success_rate ?? 0,
+      avg_execution_time: data.uptime_seconds ? 0 : 0, // Backend doesn't track this yet
+      total_agents: data.orchestrator?.available_roles?.length ?? 0,
+    };
   },
 
   getAudit: async (): Promise<AuditEntry[]> => {
