@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from api.auth import JWTBearer, UserContext, create_dev_token, DEV_MODE
+from api.auth import JWTBearer, OptionalJWTBearer, UserContext, create_dev_token, DEV_MODE
 from api.ratelimit import RateLimitDependency, release_concurrent_slot
 from core.agents.registry import get_registry
 from core.models.qwen import QwenModel
@@ -300,9 +300,9 @@ async def execute_task(
 async def list_roles(
     vertical: str | None = None,
     region: str | None = None,
-    user: UserContext = Depends(JWTBearer())
+    user: UserContext | None = Depends(OptionalJWTBearer())
 ):
-    """List available agent roles"""
+    """List available agent roles (public endpoint)"""
     registry = get_registry()
 
     roles = registry.get_roles_by_vertical(vertical) if vertical else registry.list_roles()
