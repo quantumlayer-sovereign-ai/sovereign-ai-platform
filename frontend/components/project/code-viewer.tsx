@@ -1,11 +1,40 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, Component, ReactNode } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { useTheme } from '@/components/providers';
 import { Copy, Check, FileCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { editor } from 'monaco-editor';
+
+// Error boundary to catch Monaco cancellation errors
+class EditorErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    // Ignore Monaco cancellation errors
+    if (error.message?.includes('Canceled')) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
 
 interface ProjectFile {
   path: string;
@@ -65,6 +94,18 @@ export function CodeViewer({ file, isLoading }: CodeViewerProps) {
   const { theme } = useTheme();
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Suppress Monaco cancellation errors globally
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes('Canceled') ||
+          event.reason?.name === 'Canceled') {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('unhandledrejection', handler);
+    return () => window.removeEventListener('unhandledrejection', handler);
+  }, []);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -169,35 +210,43 @@ export function CodeViewer({ file, isLoading }: CodeViewerProps) {
 
       {/* Editor */}
       <div className="flex-1 min-h-0">
-        <Editor
-          key={file.path}
-          height="100%"
-          language={language}
-          value={file.content}
-          onMount={handleEditorDidMount}
-          theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-          options={{
-            readOnly: true,
-            minimap: { enabled: false },
-            fontSize: 13,
-            lineNumbers: 'on',
-            scrollBeyondLastLine: false,
-            wordWrap: 'on',
-            padding: { top: 12, bottom: 12 },
-            fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
-            tabSize: 4,
-            automaticLayout: true,
-            scrollbar: {
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8,
-            },
-          }}
-          loading={
+        <EditorErrorBoundary
+          fallback={
             <div className="flex items-center justify-center h-full bg-card">
               <div className="text-muted-foreground">Loading editor...</div>
             </div>
           }
-        />
+        >
+          <Editor
+            key={file.path}
+            height="100%"
+            language={language}
+            value={file.content}
+            onMount={handleEditorDidMount}
+            theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineNumbers: 'on',
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              padding: { top: 12, bottom: 12 },
+              fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
+              tabSize: 4,
+              automaticLayout: true,
+              scrollbar: {
+                verticalScrollbarSize: 8,
+                horizontalScrollbarSize: 8,
+              },
+            }}
+            loading={
+              <div className="flex items-center justify-center h-full bg-card">
+                <div className="text-muted-foreground">Loading editor...</div>
+              </div>
+            }
+          />
+        </EditorErrorBoundary>
       </div>
     </div>
   );
