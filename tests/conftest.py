@@ -327,6 +327,48 @@ def isolated_registry():
 
 
 # ============================================================================
+# Optional Dependency Detection
+# ============================================================================
+
+def _check_chromadb():
+    """Check if chromadb is available"""
+    try:
+        import chromadb
+        return True
+    except ImportError:
+        return False
+
+
+def _check_sentence_transformers():
+    """Check if sentence_transformers is available"""
+    try:
+        import sentence_transformers
+        return True
+    except ImportError:
+        return False
+
+
+HAS_CHROMADB = _check_chromadb()
+HAS_SENTENCE_TRANSFORMERS = _check_sentence_transformers()
+
+# Skip markers for optional dependencies
+requires_chromadb = pytest.mark.skipif(
+    not HAS_CHROMADB,
+    reason="chromadb not installed (optional dependency for RAG)"
+)
+
+requires_sentence_transformers = pytest.mark.skipif(
+    not HAS_SENTENCE_TRANSFORMERS,
+    reason="sentence_transformers not installed (optional dependency for embeddings)"
+)
+
+requires_rag = pytest.mark.skipif(
+    not (HAS_CHROMADB and HAS_SENTENCE_TRANSFORMERS),
+    reason="RAG dependencies not installed (chromadb and/or sentence_transformers)"
+)
+
+
+# ============================================================================
 # Test Markers
 # ============================================================================
 
@@ -338,3 +380,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: Slow running tests")
     config.addinivalue_line("markers", "requires_model: Tests requiring loaded model")
     config.addinivalue_line("markers", "requires_api: Tests requiring running API")
+    config.addinivalue_line("markers", "requires_chromadb: Tests requiring chromadb")
+    config.addinivalue_line("markers", "requires_sentence_transformers: Tests requiring sentence_transformers")
+    config.addinivalue_line("markers", "requires_rag: Tests requiring full RAG stack")

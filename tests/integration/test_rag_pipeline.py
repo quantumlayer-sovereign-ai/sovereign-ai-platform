@@ -8,7 +8,10 @@ Tests full RAG workflow:
 
 import pytest
 
+from tests.conftest import requires_chromadb, requires_rag, requires_sentence_transformers
 
+
+@requires_rag
 @pytest.mark.integration
 class TestRAGPipelineIntegration:
     """Integration tests for complete RAG pipeline"""
@@ -223,6 +226,7 @@ Implement token expiration.
         assert result2["chunks_indexed"] >= initial_count
 
 
+@requires_rag
 @pytest.mark.integration
 class TestFintechRAGIntegration:
     """Integration tests for FinTech-specific RAG"""
@@ -282,6 +286,7 @@ Settlement within T+1 business days.
         assert "escrow" in all_content or "rbi" in all_content
 
 
+@requires_sentence_transformers
 @pytest.mark.integration
 class TestEmbeddingIntegration:
     """Integration tests for embedding model"""

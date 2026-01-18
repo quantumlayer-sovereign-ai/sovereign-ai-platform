@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import requires_chromadb
+
 
 class TestRAGOrchestratorUnit:
     """Unit tests for RAGOrchestrator class"""
@@ -192,6 +194,7 @@ class TestRAGOrchestratorUnit:
 
         assert "pci_dss" in result.compliance_status
 
+    @requires_chromadb
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_index_knowledge_base(self, orchestrator, tmp_path):
@@ -208,6 +211,7 @@ class TestRAGOrchestratorUnit:
 
         assert result.get("chunks_indexed", 0) > 0
 
+    @requires_chromadb
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_search_knowledge(self, orchestrator, tmp_path):

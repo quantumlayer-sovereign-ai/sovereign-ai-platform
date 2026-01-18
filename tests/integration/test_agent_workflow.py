@@ -8,6 +8,8 @@ Tests complete agent workflows:
 
 import pytest
 
+from tests.conftest import requires_chromadb
+
 
 @pytest.mark.integration
 class TestAgentWorkflowIntegration:
@@ -278,6 +280,7 @@ Hash passwords with bcrypt.
         assert result.success is True
         assert result.task_id is not None
 
+    @requires_chromadb
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_rag_orchestrator_with_kb(self, rag_orchestrator, temp_kb):
@@ -299,6 +302,7 @@ Hash passwords with bcrypt.
         # Audit trail should include RAG sources
         assert len(result.audit_trail) > 0
 
+    @requires_chromadb
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_rag_search_knowledge(self, rag_orchestrator, temp_kb):

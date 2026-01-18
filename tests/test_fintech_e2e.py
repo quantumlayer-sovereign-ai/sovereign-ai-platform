@@ -14,17 +14,19 @@ import pytest
 
 from core.agents.factory import AgentFactory
 from core.agents.registry import get_registry
-from core.orchestrator import RAGOrchestrator
-from core.rag.pipeline import FintechRAG
 from core.tools.security_tools import SecurityScanner
 from verticals.fintech.compliance import ComplianceChecker
 
+from tests.conftest import requires_chromadb
 
+
+@requires_chromadb
 class TestFintechRAGPipeline:
     """Test FinTech RAG pipeline with real knowledge base"""
 
     @pytest.fixture
     def fintech_rag(self):
+        from core.rag.pipeline import FintechRAG
         rag = FintechRAG()
         # Index the fintech knowledge base
         kb_path = Path(__file__).parent.parent / "data" / "knowledge" / "fintech"
@@ -162,11 +164,13 @@ def make_payment(encrypted_data: bytes):
         assert len(critical_issues) == 0
 
 
+@requires_chromadb
 class TestRAGOrchestrator:
     """Test RAG-enhanced orchestrator"""
 
     @pytest.fixture
     def orchestrator(self):
+        from core.orchestrator import RAGOrchestrator
         from verticals.fintech import register_fintech_roles
         register_fintech_roles()
         return RAGOrchestrator(
@@ -311,6 +315,7 @@ class TestEndToEndScenarios:
 
     @pytest.fixture
     def orchestrator(self):
+        from core.orchestrator import RAGOrchestrator
         from verticals.fintech import register_fintech_roles
         register_fintech_roles()
         return RAGOrchestrator(

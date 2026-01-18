@@ -13,7 +13,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.conftest import requires_chromadb
 
+
+@requires_chromadb
 class TestVectorStoreUnit:
     """Unit tests for VectorStore class"""
 

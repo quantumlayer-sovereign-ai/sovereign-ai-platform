@@ -11,10 +11,9 @@ Tests:
 
 import pytest
 
-from core.rag.embeddings import EmbeddingModel
 from core.rag.loader import Chunk, Document, DocumentLoader
-from core.rag.pipeline import FintechRAG, RAGPipeline
-from core.rag.vectorstore import VectorStore
+
+from tests.conftest import requires_chromadb, requires_sentence_transformers
 
 
 class TestDocumentLoader:
@@ -82,11 +81,13 @@ class TestDocumentLoader:
         assert all(isinstance(c, Chunk) for c in chunks)
 
 
+@requires_sentence_transformers
 class TestEmbeddingModel:
     """Test embedding generation"""
 
     @pytest.fixture
     def embedding_model(self):
+        from core.rag.embeddings import EmbeddingModel
         model = EmbeddingModel(model_name="minilm")
         return model
 
@@ -122,11 +123,13 @@ class TestEmbeddingModel:
         assert sim_related > sim_unrelated
 
 
+@requires_chromadb
 class TestVectorStore:
     """Test vector store operations"""
 
     @pytest.fixture
     def vector_store(self):
+        from core.rag.vectorstore import VectorStore
         # Use in-memory store for tests
         store = VectorStore(collection_name="test_collection")
         store.connect()
@@ -193,11 +196,13 @@ class TestVectorStore:
         assert stats["count"] == 1
 
 
+@requires_chromadb
 class TestRAGPipeline:
     """Test complete RAG pipeline"""
 
     @pytest.fixture
     def rag_pipeline(self):
+        from core.rag.pipeline import RAGPipeline
         pipeline = RAGPipeline(chunk_size=500)
         return pipeline
 
@@ -253,11 +258,13 @@ class TestRAGPipeline:
         assert len(result["sources"]) > 0
 
 
+@requires_chromadb
 class TestFintechRAG:
     """Test FinTech-specific RAG"""
 
     @pytest.fixture
     def fintech_rag(self):
+        from core.rag.pipeline import FintechRAG
         return FintechRAG()
 
     def test_retrieve_compliance(self, fintech_rag):

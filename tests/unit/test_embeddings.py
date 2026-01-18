@@ -14,7 +14,10 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from tests.conftest import requires_sentence_transformers
 
+
+@requires_sentence_transformers
 class TestEmbeddingModelUnit:
     """Unit tests for EmbeddingModel class"""
 
