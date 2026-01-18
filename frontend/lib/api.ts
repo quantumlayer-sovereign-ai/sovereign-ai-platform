@@ -88,6 +88,7 @@ export interface TaskResponse {
   compliance_status?: Record<string, boolean | { passed: boolean; issues: string[] }>;
   execution_time_seconds?: number;
   error?: string;
+  project_id?: string; // Project ID if project was generated
   // For frontend display, we transform this to result format
   result?: {
     task: string;
@@ -189,6 +190,31 @@ export interface AuditEntry {
   duration?: number;
 }
 
+export interface ProjectFile {
+  path: string;
+  language: string;
+  size: number;
+  content?: string;
+}
+
+export interface ProjectManifest {
+  task_id: string;
+  task: string;
+  created_at: string;
+  files: ProjectFile[];
+  agents_used: string[];
+  total_files: number;
+  total_size: number;
+}
+
+export interface ProjectListItem {
+  task_id: string;
+  task: string;
+  created_at: string;
+  total_files: number;
+  total_size: number;
+}
+
 export const api = {
   // Health (public endpoint - no auth required)
   getHealth: async (): Promise<HealthResponse> => {
@@ -280,6 +306,31 @@ export const api = {
       headers: getHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to fetch audit');
+    return res.json();
+  },
+
+  // Projects
+  getProjects: async (): Promise<{ projects: ProjectListItem[] }> => {
+    const res = await fetch(`${getApiUrl()}/projects`, {
+      headers: getHeaders(false),
+    });
+    if (!res.ok) throw new Error('Failed to fetch projects');
+    return res.json();
+  },
+
+  getProject: async (taskId: string): Promise<ProjectManifest> => {
+    const res = await fetch(`${getApiUrl()}/projects/${taskId}`, {
+      headers: getHeaders(false),
+    });
+    if (!res.ok) throw new Error('Failed to fetch project');
+    return res.json();
+  },
+
+  getProjectFile: async (taskId: string, path: string): Promise<ProjectFile> => {
+    const res = await fetch(`${getApiUrl()}/projects/${taskId}/files/${path}`, {
+      headers: getHeaders(false),
+    });
+    if (!res.ok) throw new Error('Failed to fetch file');
     return res.json();
   },
 };

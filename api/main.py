@@ -6,18 +6,23 @@ Enterprise API for regulated industries with:
 - Compliance checking
 - Audit logging
 - Rate limiting
+- Project generation and export
 """
 
+import io
 import os
 import sys
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
+from pathlib import Path
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.auth import JWTBearer, OptionalJWTBearer, UserContext, create_dev_token, DEV_MODE
@@ -25,6 +30,7 @@ from api.ratelimit import RateLimitDependency, release_concurrent_slot
 from core.agents.registry import get_registry
 from core.models.qwen import QwenModel
 from core.orchestrator import RAGOrchestrator
+from core.output import ProjectGenerator
 from core.tools.security_tools import SecurityScanner
 from verticals.fintech import ComplianceChecker, register_fintech_roles
 from verticals.fintech.region import FinTechRegion, get_region_config
@@ -74,6 +80,7 @@ async def rate_limit_cleanup_middleware(request: Request, call_next):
 model: QwenModel | None = None
 orchestrator: RAGOrchestrator | None = None
 security_scanner: SecurityScanner | None = None
+project_generator: ProjectGenerator | None = None
 
 
 # Valid regions
@@ -87,6 +94,7 @@ class TaskRequest(BaseModel):
     region: str | None = Field("india", description="Region: india, eu, or uk")
     compliance_requirements: list[str] | None = Field(default=[], description="Compliance requirements")
     use_rag: bool | None = Field(True, description="Use RAG for context retrieval")
+    generate_project: bool | None = Field(True, description="Generate project structure from code output")
 
 
 class TaskResponse(BaseModel):
@@ -96,6 +104,7 @@ class TaskResponse(BaseModel):
     agents_used: list[str]
     compliance_status: dict[str, bool]
     execution_time_seconds: float
+    project_id: str | None = Field(None, description="Project ID if project was generated")
 
 
 class ComplianceRequest(BaseModel):
@@ -136,7 +145,7 @@ startup_time = datetime.now()
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
-    global model, orchestrator, security_scanner
+    global model, orchestrator, security_scanner, project_generator
 
     logger.info("starting_sovereign_ai")
 
@@ -169,11 +178,16 @@ async def startup_event():
     # Initialize security scanner
     security_scanner = SecurityScanner()
 
+    # Initialize project generator
+    projects_dir = os.environ.get("PROJECTS_DIR", "./projects")
+    project_generator = ProjectGenerator(base_dir=projects_dir)
+
     logger.info("sovereign_ai_ready",
                model_size=model_size,
                quantize=quantize,
                max_agents=max_agents,
-               rag_enabled=True)
+               rag_enabled=True,
+               projects_dir=projects_dir)
 
 
 @app.on_event("shutdown")
@@ -293,13 +307,28 @@ async def execute_task(
         use_rag=request.use_rag
     )
 
+    # Generate project structure if requested
+    project_id = None
+    if request.generate_project and result.success and project_generator:
+        try:
+            manifest = await project_generator.generate(
+                task_id=result.task_id,
+                results=result.results,
+                task=request.task,
+                agents_used=result.agents_used,
+            )
+            project_id = manifest.task_id
+        except Exception as e:
+            logger.warning("project_generation_failed", error=str(e))
+
     return TaskResponse(
         task_id=result.task_id,
         success=result.success,
         output=result.aggregated_output,
         agents_used=result.agents_used,
         compliance_status=result.compliance_status,
-        execution_time_seconds=result.execution_time_seconds
+        execution_time_seconds=result.execution_time_seconds,
+        project_id=project_id,
     )
 
 
@@ -505,6 +534,103 @@ async def scan_code(
 
     result = security_scanner.scan_code(request.code, request.filename)
     return result
+
+
+# Project endpoints
+class ProjectFileResponse(BaseModel):
+    path: str
+    content: str
+    language: str
+    size: int
+
+
+class ProjectManifestResponse(BaseModel):
+    task_id: str
+    task: str
+    created_at: str
+    files: list[dict]
+    agents_used: list[str]
+    total_files: int
+    total_size: int
+
+
+@app.get("/projects")
+async def list_projects(user: UserContext = Depends(JWTBearer())):
+    """List all generated projects"""
+    if not project_generator:
+        raise HTTPException(status_code=503, detail="Project generator not initialized")
+
+    return {"projects": project_generator.list_projects()}
+
+
+@app.get("/projects/{task_id}", response_model=ProjectManifestResponse)
+async def get_project(task_id: str, user: UserContext = Depends(JWTBearer())):
+    """Get project manifest and file list"""
+    if not project_generator:
+        raise HTTPException(status_code=503, detail="Project generator not initialized")
+
+    manifest = await project_generator.get_project(task_id)
+    if not manifest:
+        raise HTTPException(status_code=404, detail=f"Project not found: {task_id}")
+
+    return ProjectManifestResponse(
+        task_id=manifest.task_id,
+        task=manifest.task,
+        created_at=manifest.created_at.isoformat(),
+        files=[{"path": f.path, "language": f.language, "size": f.size} for f in manifest.files],
+        agents_used=manifest.agents_used,
+        total_files=manifest.total_files,
+        total_size=manifest.total_size,
+    )
+
+
+@app.get("/projects/{task_id}/files/{path:path}", response_model=ProjectFileResponse)
+async def get_project_file(
+    task_id: str,
+    path: str,
+    user: UserContext = Depends(JWTBearer())
+):
+    """Get single file content from a project"""
+    if not project_generator:
+        raise HTTPException(status_code=503, detail="Project generator not initialized")
+
+    file = await project_generator.get_file(task_id, path)
+    if not file:
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    return ProjectFileResponse(
+        path=file.path,
+        content=file.content,
+        language=file.language,
+        size=file.size,
+    )
+
+
+@app.get("/projects/{task_id}/download")
+async def download_project(task_id: str, user: UserContext = Depends(JWTBearer())):
+    """Download project as ZIP file"""
+    if not project_generator:
+        raise HTTPException(status_code=503, detail="Project generator not initialized")
+
+    project_path = Path(project_generator.base_dir) / task_id
+
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail=f"Project not found: {task_id}")
+
+    # Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for file in project_path.rglob('*'):
+            if file.is_file():
+                zf.write(file, file.relative_to(project_path))
+
+    zip_buffer.seek(0)
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{task_id}.zip"'}
+    )
 
 
 if __name__ == "__main__":

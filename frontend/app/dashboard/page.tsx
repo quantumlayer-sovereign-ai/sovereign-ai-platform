@@ -1,7 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { FileCode, FileText } from 'lucide-react';
 import { TaskInput, AgentCards, OutputViewer, SystemStatus } from '@/components/dashboard';
+import { ProjectExplorer } from '@/components/project';
+import { Button } from '@/components/ui/button';
 import { useAppStore, type ActiveAgent } from '@/stores/app-store';
 import { useExecuteTask } from '@/lib/hooks';
 import { useToast } from '@/hooks/use-toast';
@@ -84,10 +87,14 @@ const defaultAgents: ActiveAgent[] = [
   { id: '7', role: 'pm', state: 'idle' },
 ];
 
+type ViewMode = 'output' | 'project';
+
 export default function DashboardPage() {
   const { selectedVertical, selectedStandards, useRAG } = useAppStore();
   const [agents, setAgents] = useState<ActiveAgent[]>(defaultAgents);
   const [taskResult, setTaskResult] = useState<TaskResult | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('output');
+  const [projectId, setProjectId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const executeTask = useExecuteTask();
@@ -141,6 +148,12 @@ export default function DashboardPage() {
           execution_time: result.execution_time_seconds || 0,
         };
         setTaskResult(transformedResult);
+
+        // Store project ID if generated
+        if (result.project_id) {
+          setProjectId(result.project_id);
+        }
+
         toast({
           title: 'Task Completed',
           description: `Executed in ${(result.execution_time_seconds || 0).toFixed(1)}s with ${(result.agents_used || []).length} agents`,
@@ -235,7 +248,40 @@ All security requirements validated:
         <div className="lg:col-span-2 space-y-6">
           <TaskInput onExecute={handleExecute} isLoading={executeTask.isPending} />
           <AgentCards agents={agents} />
-          <OutputViewer result={taskResult ?? undefined} isLoading={executeTask.isPending} />
+
+          {/* View Mode Toggle */}
+          {(taskResult || projectId) && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant={viewMode === 'output' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('output')}
+                className="gap-1.5"
+              >
+                <FileText className="h-4 w-4" />
+                Output View
+              </Button>
+              <Button
+                variant={viewMode === 'project' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('project')}
+                disabled={!projectId}
+                className="gap-1.5"
+              >
+                <FileCode className="h-4 w-4" />
+                Project View
+              </Button>
+            </div>
+          )}
+
+          {/* Content based on view mode */}
+          {viewMode === 'output' ? (
+            <OutputViewer result={taskResult ?? undefined} isLoading={executeTask.isPending} />
+          ) : projectId ? (
+            <ProjectExplorer taskId={projectId} />
+          ) : (
+            <OutputViewer result={taskResult ?? undefined} isLoading={executeTask.isPending} />
+          )}
         </div>
 
         {/* Sidebar - 1 column */}
