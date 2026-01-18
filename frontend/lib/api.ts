@@ -36,7 +36,7 @@ export const setAuthToken = (token: string | null) => {
 };
 
 export const getAuthToken = (): string | null => {
-  if (authToken) return authToken;
+  // Always read from localStorage to get fresh token
   if (typeof window !== 'undefined') {
     authToken = localStorage.getItem('auth_token');
   }
