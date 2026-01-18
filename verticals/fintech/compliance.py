@@ -1,18 +1,35 @@
 """
 FinTech Compliance Checker
 
-Automated compliance verification for:
+Automated compliance verification for multiple regions:
+
+India:
 - PCI-DSS
 - RBI Guidelines
 - SEBI Regulations
 - DPDP Act
+
+EU:
+- PCI-DSS
+- GDPR
+- PSD2
+- eIDAS
+- DORA
+
+UK:
+- PCI-DSS
+- UK GDPR
+- FCA Handbook
+- PSR Requirements
 """
 
 import re
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+
 import structlog
+
+from .region import FinTechRegion, get_region_config, DEFAULT_REGION
 
 logger = structlog.get_logger()
 
@@ -34,20 +51,23 @@ class ComplianceIssue:
     description: str
     evidence: str
     remediation: str
-    standard: str  # pci_dss, rbi, sebi, dpdp
-    line_number: Optional[int] = None
+    standard: str  # pci_dss, rbi, sebi, dpdp, gdpr, psd2, fca, etc.
+    line_number: int | None = None
+    article: str | None = None  # For GDPR articles, FCA rules, etc.
 
 
 @dataclass
 class ComplianceReport:
     """Compliance check report"""
     passed: bool
-    issues: List[ComplianceIssue] = field(default_factory=list)
-    summary: Dict[str, int] = field(default_factory=dict)
-    recommendations: List[str] = field(default_factory=list)
+    issues: list[ComplianceIssue] = field(default_factory=list)
+    summary: dict[str, int] = field(default_factory=dict)
+    recommendations: list[str] = field(default_factory=list)
+    region: str | None = None
+    standards_checked: list[str] = field(default_factory=list)
 
 
-# PCI-DSS Compliance Checks
+# PCI-DSS Compliance Checks (Global - applies to all regions)
 PCI_DSS_CHECKS = {
     "PCI-3.4": {
         "name": "Cardholder Data Protection",
@@ -119,7 +139,7 @@ PCI_DSS_CHECKS = {
 }
 
 
-# RBI Compliance Checks
+# RBI Compliance Checks (India)
 RBI_CHECKS = {
     "RBI-DL-1": {
         "name": "Data Localization",
@@ -150,7 +170,7 @@ RBI_CHECKS = {
 }
 
 
-# DPDP Act Checks
+# DPDP Act Checks (India)
 DPDP_CHECKS = {
     "DPDP-1": {
         "name": "Consent Management",
@@ -170,28 +190,168 @@ DPDP_CHECKS = {
 }
 
 
+# GDPR Checks (EU)
+GDPR_CHECKS = {
+    "GDPR-ART17": {
+        "name": "Right to Erasure",
+        "description": "Data subjects have right to erasure",
+        "check_type": "function_presence",
+        "required_functions": ["delete_personal_data", "erase_user", "right_to_erasure"],
+        "severity": Severity.CRITICAL,
+        "remediation": "Implement data deletion mechanism with verification."
+    },
+    "GDPR-ART33": {
+        "name": "Breach Notification (72 hours)",
+        "description": "Personal data breach must be notified within 72 hours",
+        "check_type": "function_presence",
+        "required_functions": ["notify_breach", "report_breach", "breach_notification"],
+        "severity": Severity.CRITICAL,
+        "remediation": "Implement breach detection and 72-hour notification to DPA."
+    },
+    "GDPR-ART20": {
+        "name": "Data Portability",
+        "description": "Data subjects have right to data portability",
+        "check_type": "function_presence",
+        "required_functions": ["export_user_data", "data_portability", "download_my_data"],
+        "severity": Severity.HIGH,
+        "remediation": "Implement data export in machine-readable format."
+    }
+}
+
+
+# PSD2 Checks (EU)
+PSD2_CHECKS = {
+    "PSD2-SCA-1": {
+        "name": "Strong Customer Authentication",
+        "description": "SCA required: 2 of 3 factors",
+        "check_type": "function_presence",
+        "required_functions": ["verify_sca", "strong_customer_auth", "two_factor_auth"],
+        "severity": Severity.CRITICAL,
+        "remediation": "Implement SCA with at least 2 independent elements."
+    },
+    "PSD2-SCA-2": {
+        "name": "Dynamic Linking",
+        "description": "Authentication code must be linked to amount and payee",
+        "patterns": [
+            r"static_otp",
+            r"reusable_token",
+            r"fixed_auth_code",
+        ],
+        "severity": Severity.CRITICAL,
+        "remediation": "Generate authentication code dynamically linked to amount and recipient."
+    }
+}
+
+
+# FCA Checks (UK)
+FCA_CHECKS = {
+    "FCA-COND-1": {
+        "name": "Consumer Duty",
+        "description": "Act to deliver good outcomes for retail customers",
+        "check_type": "function_presence",
+        "required_functions": ["assess_customer_outcome", "monitor_outcomes"],
+        "severity": Severity.CRITICAL,
+        "remediation": "Design products and services for good customer outcomes."
+    },
+    "FCA-SYSC-1": {
+        "name": "Systems and Controls",
+        "description": "Maintain adequate systems and controls",
+        "check_type": "function_presence",
+        "required_functions": ["compliance_check", "risk_assessment", "control_testing"],
+        "severity": Severity.HIGH,
+        "remediation": "Implement governance, risk management, and compliance monitoring."
+    }
+}
+
+
+# UK GDPR Checks
+UK_GDPR_CHECKS = {
+    "UKGDPR-ART33": {
+        "name": "ICO Breach Notification",
+        "description": "Notify ICO of personal data breach within 72 hours",
+        "check_type": "function_presence",
+        "required_functions": ["notify_ico", "report_breach", "breach_notification"],
+        "severity": Severity.CRITICAL,
+        "remediation": "Implement breach detection and notification to ICO."
+    }
+}
+
+
+# Region to checks mapping
+REGION_CHECKS = {
+    FinTechRegion.INDIA: {
+        "pci_dss": PCI_DSS_CHECKS,
+        "rbi": RBI_CHECKS,
+        "dpdp": DPDP_CHECKS,
+    },
+    FinTechRegion.EU: {
+        "pci_dss": PCI_DSS_CHECKS,
+        "gdpr": GDPR_CHECKS,
+        "psd2": PSD2_CHECKS,
+    },
+    FinTechRegion.UK: {
+        "pci_dss": PCI_DSS_CHECKS,
+        "uk_gdpr": UK_GDPR_CHECKS,
+        "fca": FCA_CHECKS,
+    },
+}
+
+
 class ComplianceChecker:
     """
     Automated compliance checker for FinTech code
+
+    Supports region-aware compliance checking for:
+    - India: PCI-DSS, RBI, DPDP
+    - EU: PCI-DSS, GDPR, PSD2
+    - UK: PCI-DSS, UK GDPR, FCA
     """
 
-    def __init__(self, standards: Optional[List[str]] = None):
+    def __init__(
+        self,
+        standards: list[str] | None = None,
+        region: str | FinTechRegion | None = None
+    ):
         """
         Initialize compliance checker
 
         Args:
-            standards: List of standards to check (pci_dss, rbi, dpdp)
-                      If None, checks all standards
+            standards: List of standards to check. If None, uses region defaults.
+            region: Region for compliance (india, eu, uk). Defaults to india.
         """
-        self.standards = standards or ["pci_dss", "rbi", "dpdp"]
+        # Handle region
+        if region is not None:
+            if isinstance(region, str):
+                region = FinTechRegion(region.lower())
+            self.region = region
+        else:
+            self.region = DEFAULT_REGION
+
+        # Determine standards to check
+        if standards is not None:
+            self.standards = standards
+        else:
+            # Use region defaults
+            region_config = get_region_config(self.region)
+            self.standards = region_config.compliance_standards
+
         self.checks = {}
 
+        # Load checks based on standards
         if "pci_dss" in self.standards:
             self.checks.update({f"pci_dss:{k}": v for k, v in PCI_DSS_CHECKS.items()})
         if "rbi" in self.standards:
             self.checks.update({f"rbi:{k}": v for k, v in RBI_CHECKS.items()})
         if "dpdp" in self.standards:
             self.checks.update({f"dpdp:{k}": v for k, v in DPDP_CHECKS.items()})
+        if "gdpr" in self.standards:
+            self.checks.update({f"gdpr:{k}": v for k, v in GDPR_CHECKS.items()})
+        if "psd2" in self.standards:
+            self.checks.update({f"psd2:{k}": v for k, v in PSD2_CHECKS.items()})
+        if "uk_gdpr" in self.standards:
+            self.checks.update({f"uk_gdpr:{k}": v for k, v in UK_GDPR_CHECKS.items()})
+        if "fca" in self.standards:
+            self.checks.update({f"fca:{k}": v for k, v in FCA_CHECKS.items()})
 
     def check_code(self, code: str, filename: str = "code") -> ComplianceReport:
         """
@@ -249,13 +409,14 @@ class ComplianceChecker:
         }
 
         # Generate recommendations
-        recommendations = list(set(i.remediation for i in issues))
+        recommendations = list({i.remediation for i in issues})
 
         passed = summary["critical"] == 0 and summary["high"] == 0
 
         logger.info("compliance_check_complete",
                    filename=filename,
                    passed=passed,
+                   region=self.region.value,
                    critical=summary["critical"],
                    high=summary["high"])
 
@@ -263,12 +424,14 @@ class ComplianceChecker:
             passed=passed,
             issues=issues,
             summary=summary,
-            recommendations=recommendations
+            recommendations=recommendations,
+            region=self.region.value,
+            standards_checked=self.standards
         )
 
     def check_file(self, filepath: str) -> ComplianceReport:
         """Check a file for compliance issues"""
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             code = f.read()
         return self.check_code(code, filepath)
 

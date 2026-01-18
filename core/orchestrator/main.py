@@ -11,14 +11,14 @@ The Orchestrator:
 """
 
 import asyncio
-import json
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
 import structlog
 
-from ..agents.base import Agent, AgentContext, AgentState
+from ..agents.base import Agent, AgentContext
 from ..agents.factory import AgentFactory
 from ..agents.registry import get_registry
 
@@ -37,11 +37,11 @@ class TaskPlan:
     task_id: str
     original_task: str
     analysis: str
-    subtasks: List[Dict[str, Any]]
-    agents_needed: List[str]
+    subtasks: list[dict[str, Any]]
+    agents_needed: list[str]
     execution_mode: ExecutionMode
-    compliance_checks: List[str]
-    vertical: Optional[str] = None
+    compliance_checks: list[str]
+    vertical: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -50,12 +50,12 @@ class TaskResult:
     """Result of task execution"""
     task_id: str
     success: bool
-    results: List[Dict[str, Any]]
+    results: list[dict[str, Any]]
     aggregated_output: str
-    compliance_status: Dict[str, bool]
+    compliance_status: dict[str, bool]
     execution_time_seconds: float
-    agents_used: List[str]
-    audit_trail: List[Dict[str, Any]]
+    agents_used: list[str]
+    audit_trail: list[dict[str, Any]]
 
 
 class Orchestrator:
@@ -74,21 +74,22 @@ class Orchestrator:
         self,
         model_interface: Any = None,
         max_agents: int = 10,
-        default_vertical: Optional[str] = None
+        default_vertical: str | None = None
     ):
         self.model = model_interface
         self.factory = AgentFactory(model_interface=model_interface, max_agents=max_agents)
         self.registry = get_registry()
         self.default_vertical = default_vertical
 
-        self.task_history: List[TaskResult] = []
+        self.task_history: list[TaskResult] = []
         self._task_counter = 0
 
     async def execute(
         self,
         task: str,
-        vertical: Optional[str] = None,
-        compliance_requirements: Optional[List[str]] = None
+        vertical: str | None = None,
+        region: str | None = None,
+        compliance_requirements: list[str] | None = None
     ) -> TaskResult:
         """
         Execute a task using multi-agent coordination
@@ -96,6 +97,7 @@ class Orchestrator:
         Args:
             task: Task description
             vertical: Vertical context (fintech, healthcare, etc.)
+            region: Region for compliance (india, eu, uk)
             compliance_requirements: Specific compliance needs
 
         Returns:
@@ -103,18 +105,19 @@ class Orchestrator:
         """
         start_time = datetime.now()
         vertical = vertical or self.default_vertical
+        region = region or "india"  # Default to India for backward compatibility
         compliance_requirements = compliance_requirements or []
 
         # Generate task ID
         self._task_counter += 1
         task_id = f"task_{self._task_counter}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        logger.info("task_started", task_id=task_id, task=task[:100], vertical=vertical)
+        logger.info("task_started", task_id=task_id, task=task[:100], vertical=vertical, region=region)
 
         try:
             # Step 1: Analyze and plan
-            plan = await self._analyze_task(task_id, task, vertical, compliance_requirements)
-            logger.info("task_planned", task_id=task_id, agents=plan.agents_needed)
+            plan = await self._analyze_task(task_id, task, vertical, region, compliance_requirements)
+            logger.info("task_planned", task_id=task_id, agents=plan.agents_needed, region=region)
 
             # Step 2: Spawn required agents
             agents = await self._spawn_agents(plan)
@@ -163,7 +166,7 @@ class Orchestrator:
                 task_id=task_id,
                 success=False,
                 results=[{"error": str(e)}],
-                aggregated_output=f"Task failed: {str(e)}",
+                aggregated_output=f"Task failed: {e!s}",
                 compliance_status={},
                 execution_time_seconds=execution_time,
                 agents_used=[],
@@ -177,57 +180,95 @@ class Orchestrator:
         self,
         task_id: str,
         task: str,
-        vertical: Optional[str],
-        compliance_requirements: List[str]
+        vertical: str | None,
+        region: str,
+        compliance_requirements: list[str]
     ) -> TaskPlan:
         """Analyze task and create execution plan"""
 
         # Find matching roles based on task content
         matching_roles = self.registry.find_roles_for_task(task, vertical)
 
-        # If no specific roles match, use a default set
+        # If no specific roles match, use a default set based on region
         if not matching_roles:
             matching_roles = ["coder"]
 
+        # Apply region prefix to roles (eu_, uk_, or none for india)
+        region_roles = self._apply_region_prefix(matching_roles, region)
+
         # Determine execution mode
         execution_mode = ExecutionMode.SEQUENTIAL
-        if len(matching_roles) > 2:
+        if len(region_roles) > 2:
             # For complex tasks, some can run in parallel
             execution_mode = ExecutionMode.PARALLEL
 
         # Create subtasks for each role
         subtasks = []
-        for role in matching_roles:
+        for role in region_roles:
             subtasks.append({
                 "role": role,
                 "task": f"[{role.upper()}] {task}",
                 "depends_on": []
             })
 
-        # Add compliance checks based on vertical
+        # Add compliance checks based on vertical and region
         compliance_checks = list(compliance_requirements)
         if vertical == "fintech":
+            # Base checks for all regions
             compliance_checks.extend(["pci_dss", "data_encryption", "audit_logging"])
+
+            # Region-specific compliance
+            if region == "india":
+                compliance_checks.extend(["rbi", "dpdp"])
+            elif region == "eu":
+                compliance_checks.extend(["gdpr", "psd2", "dora"])
+            elif region == "uk":
+                compliance_checks.extend(["uk_gdpr", "fca", "psr"])
         elif vertical == "healthcare":
             compliance_checks.extend(["hipaa", "phi_protection", "access_control"])
         elif vertical == "government":
             compliance_checks.extend(["fedramp", "security_clearance", "data_sovereignty"])
 
         # Simple analysis without model for now
-        analysis = f"Task requires {len(matching_roles)} agent(s): {', '.join(matching_roles)}"
+        analysis = f"Task requires {len(region_roles)} agent(s): {', '.join(region_roles)} [region={region}]"
 
         return TaskPlan(
             task_id=task_id,
             original_task=task,
             analysis=analysis,
             subtasks=subtasks,
-            agents_needed=matching_roles,
+            agents_needed=region_roles,
             execution_mode=execution_mode,
             compliance_checks=list(set(compliance_checks)),
             vertical=vertical
         )
 
-    async def _spawn_agents(self, plan: TaskPlan) -> List[Agent]:
+    def _apply_region_prefix(self, roles: list[str], region: str) -> list[str]:
+        """Apply region prefix to role names"""
+        if region == "india":
+            # India roles have no prefix, but ensure we don't use EU/UK roles
+            return [r for r in roles if not r.startswith(("eu_", "uk_"))]
+
+        # For EU/UK, add prefix if not already present
+        prefix = f"{region}_"
+        result = []
+        for role in roles:
+            if role.startswith(("eu_", "uk_")):
+                # Already has a region prefix
+                if role.startswith(prefix):
+                    result.append(role)
+            else:
+                # Add region prefix
+                region_role = f"{prefix}{role}"
+                # Check if this regional role exists, otherwise fall back
+                if self.registry.get_role(region_role):
+                    result.append(region_role)
+                else:
+                    result.append(role)
+
+        return result if result else roles
+
+    async def _spawn_agents(self, plan: TaskPlan) -> list[Agent]:
         """Spawn agents based on plan"""
         agents = []
 
@@ -243,8 +284,8 @@ class Orchestrator:
     async def _execute_plan(
         self,
         plan: TaskPlan,
-        agents: List[Agent]
-    ) -> List[Dict[str, Any]]:
+        agents: list[Agent]
+    ) -> list[dict[str, Any]]:
         """Execute the task plan"""
         results = []
 
@@ -288,7 +329,7 @@ class Orchestrator:
 
     async def _aggregate_results(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         plan: TaskPlan
     ) -> str:
         """Aggregate results from all agents"""
@@ -306,10 +347,10 @@ class Orchestrator:
 
     async def _verify_compliance(
         self,
-        results: List[Dict[str, Any]],
-        requirements: List[str],
-        vertical: Optional[str]
-    ) -> Dict[str, bool]:
+        results: list[dict[str, Any]],
+        requirements: list[str],
+        vertical: str | None
+    ) -> dict[str, bool]:
         """Verify compliance requirements are met"""
         compliance_status = {}
 
@@ -324,16 +365,16 @@ class Orchestrator:
 
         return compliance_status
 
-    def _collect_audit_trail(self, agents: List[Agent]) -> List[Dict[str, Any]]:
+    def _collect_audit_trail(self, agents: list[Agent]) -> list[dict[str, Any]]:
         """Collect audit trails from all agents"""
         return [agent.get_audit_log() for agent in agents]
 
-    def _cleanup_agents(self, agents: List[Agent]):
+    def _cleanup_agents(self, agents: list[Agent]):
         """Clean up agents after task completion"""
         for agent in agents:
             self.factory.destroy_agent(agent.agent_id)
 
-    def get_task_history(self) -> List[Dict[str, Any]]:
+    def get_task_history(self) -> list[dict[str, Any]]:
         """Get history of all executed tasks"""
         return [
             {
@@ -347,7 +388,7 @@ class Orchestrator:
         ]
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get orchestrator statistics"""
         successful = sum(1 for r in self.task_history if r.success)
         total = len(self.task_history)

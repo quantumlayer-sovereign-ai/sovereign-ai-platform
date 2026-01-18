@@ -4,6 +4,7 @@
 updated_at: null
 
 roles:
+  # India roles (default region)
   fintech_coder:
     latest: null
     version_count: 0
@@ -11,6 +12,7 @@ roles:
     description: "Payment APIs, UPI, banking code generation"
     priority: high
     lora_rank: 32
+    region: india
 
   fintech_security:
     latest: null
@@ -19,6 +21,7 @@ roles:
     description: "PCI-DSS scanning, vulnerability detection"
     priority: high
     lora_rank: 16
+    region: india
 
   fintech_compliance:
     latest: null
@@ -27,6 +30,7 @@ roles:
     description: "RBI/SEBI/DPDP regulatory compliance"
     priority: medium
     lora_rank: 8
+    region: india
 
   fintech_architect:
     latest: null
@@ -35,6 +39,7 @@ roles:
     description: "Payment system architecture design"
     priority: medium
     lora_rank: 16
+    region: india
 
   fintech_tester:
     latest: null
@@ -43,3 +48,136 @@ roles:
     description: "Payment testing, QA automation"
     priority: low
     lora_rank: 16
+    region: india
+
+  # EU roles
+  eu_fintech_coder:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "SEPA integration, PSD2 SCA, GDPR-compliant code"
+    priority: high
+    lora_rank: 32
+    region: eu
+    compliance_tags:
+      - gdpr
+      - psd2
+      - pci_dss
+
+  eu_fintech_security:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "GDPR Article 32 security, PSD2 SCA security"
+    priority: high
+    lora_rank: 16
+    region: eu
+    compliance_tags:
+      - gdpr
+      - psd2
+      - dora
+
+  eu_fintech_compliance:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "GDPR/PSD2/DORA regulatory compliance"
+    priority: medium
+    lora_rank: 8
+    region: eu
+    compliance_tags:
+      - gdpr
+      - psd2
+      - dora
+      - eidas
+
+  eu_fintech_architect:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "SEPA/TARGET2 system architecture, Open Banking EU"
+    priority: medium
+    lora_rank: 16
+    region: eu
+    compliance_tags:
+      - gdpr
+      - psd2
+
+  eu_fintech_tester:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "PSD2 SCA testing, GDPR compliance testing"
+    priority: low
+    lora_rank: 16
+    region: eu
+    compliance_tags:
+      - gdpr
+      - psd2
+
+  # UK roles
+  uk_fintech_coder:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "Faster Payments, Open Banking UK, FCA-compliant code"
+    priority: high
+    lora_rank: 32
+    region: uk
+    compliance_tags:
+      - uk_gdpr
+      - fca
+      - psr
+      - pci_dss
+
+  uk_fintech_security:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "FCA SYSC security, UK GDPR security controls"
+    priority: high
+    lora_rank: 16
+    region: uk
+    compliance_tags:
+      - uk_gdpr
+      - fca
+      - psr
+
+  uk_fintech_compliance:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "FCA/UK GDPR/PSR regulatory compliance, Consumer Duty"
+    priority: medium
+    lora_rank: 8
+    region: uk
+    compliance_tags:
+      - uk_gdpr
+      - fca
+      - psr
+
+  uk_fintech_architect:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "FPS/BACS/CHAPS architecture, Open Banking UK"
+    priority: medium
+    lora_rank: 16
+    region: uk
+    compliance_tags:
+      - uk_gdpr
+      - fca
+      - psr
+
+  uk_fintech_tester:
+    latest: null
+    version_count: 0
+    versions: []
+    description: "PSR fraud testing, FCA compliance testing"
+    priority: low
+    lora_rank: 16
+    region: uk
+    compliance_tags:
+      - uk_gdpr
+      - fca
+      - psr

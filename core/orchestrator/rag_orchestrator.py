@@ -8,18 +8,16 @@ Extends base orchestrator with RAG capabilities:
 - Code pattern retrieval
 """
 
-import asyncio
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
+
 import structlog
 
-from ..agents.base import Agent, AgentContext
-from ..agents.factory import AgentFactory
-from ..agents.registry import get_registry
-from ..rag.pipeline import RAGPipeline, FintechRAG
+from ..agents.base import Agent
+from ..rag.pipeline import FintechRAG, RAGPipeline
 from ..tools.security_tools import SecurityScanner
-from .main import Orchestrator, TaskPlan, TaskResult, ExecutionMode
+from .main import Orchestrator, TaskPlan, TaskResult
 
 logger = structlog.get_logger()
 
@@ -27,9 +25,9 @@ logger = structlog.get_logger()
 @dataclass
 class RAGContext:
     """Context retrieved from RAG pipeline"""
-    documents: List[Dict[str, Any]]
-    sources: List[str]
-    relevance_scores: List[float]
+    documents: list[dict[str, Any]]
+    sources: list[str]
+    relevance_scores: list[float]
     context_text: str
     vertical: str
 
@@ -49,9 +47,9 @@ class RAGOrchestrator(Orchestrator):
         self,
         model_interface: Any = None,
         max_agents: int = 10,
-        default_vertical: Optional[str] = "fintech",
-        rag_persist_dir: Optional[str] = None,
-        chromadb_host: Optional[str] = None,
+        default_vertical: str | None = "fintech",
+        rag_persist_dir: str | None = None,
+        chromadb_host: str | None = None,
         chromadb_port: int = 8000
     ):
         super().__init__(
@@ -69,7 +67,7 @@ class RAGOrchestrator(Orchestrator):
         )
 
         # Vertical-specific RAG pipelines
-        self.vertical_rags: Dict[str, RAGPipeline] = {}
+        self.vertical_rags: dict[str, RAGPipeline] = {}
 
         # Security scanner for compliance
         self.security_scanner = SecurityScanner()
@@ -93,8 +91,9 @@ class RAGOrchestrator(Orchestrator):
     async def execute(
         self,
         task: str,
-        vertical: Optional[str] = None,
-        compliance_requirements: Optional[List[str]] = None,
+        vertical: str | None = None,
+        region: str | None = None,
+        compliance_requirements: list[str] | None = None,
         use_rag: bool = True
     ) -> TaskResult:
         """
@@ -103,6 +102,7 @@ class RAGOrchestrator(Orchestrator):
         Args:
             task: Task description
             vertical: Vertical context
+            region: Region for compliance (india, eu, uk)
             compliance_requirements: Specific compliance needs
             use_rag: Whether to use RAG for context (default True)
 
@@ -111,6 +111,7 @@ class RAGOrchestrator(Orchestrator):
         """
         start_time = datetime.now()
         vertical = vertical or self.default_vertical
+        region = region or "india"  # Default to India for backward compatibility
         compliance_requirements = compliance_requirements or []
 
         # Generate task ID
@@ -121,6 +122,7 @@ class RAGOrchestrator(Orchestrator):
                    task_id=task_id,
                    task=task[:100],
                    vertical=vertical,
+                   region=region,
                    use_rag=use_rag)
 
         try:
@@ -134,7 +136,7 @@ class RAGOrchestrator(Orchestrator):
 
             # Step 2: Analyze and plan (with RAG context)
             plan = await self._analyze_task_with_rag(
-                task_id, task, vertical, compliance_requirements, rag_context
+                task_id, task, vertical, region, compliance_requirements, rag_context
             )
 
             # Step 3: Spawn agents with RAG-enhanced prompts
@@ -198,7 +200,7 @@ class RAGOrchestrator(Orchestrator):
                 task_id=task_id,
                 success=False,
                 results=[{"error": str(e)}],
-                aggregated_output=f"Task failed: {str(e)}",
+                aggregated_output=f"Task failed: {e!s}",
                 compliance_status={},
                 execution_time_seconds=execution_time,
                 agents_used=[],
@@ -212,7 +214,7 @@ class RAGOrchestrator(Orchestrator):
         self,
         task: str,
         vertical: str
-    ) -> Optional[RAGContext]:
+    ) -> RAGContext | None:
         """Retrieve relevant context from RAG"""
         try:
             rag = self.get_vertical_rag(vertical)
@@ -243,25 +245,43 @@ class RAGOrchestrator(Orchestrator):
         self,
         task_id: str,
         task: str,
-        vertical: Optional[str],
-        compliance_requirements: List[str],
-        rag_context: Optional[RAGContext]
+        vertical: str | None,
+        region: str,
+        compliance_requirements: list[str],
+        rag_context: RAGContext | None
     ) -> TaskPlan:
         """Analyze task with RAG context"""
-        # Get base plan
-        plan = await self._analyze_task(task_id, task, vertical, compliance_requirements)
+        # Get base plan (now region-aware)
+        plan = await self._analyze_task(task_id, task, vertical, region, compliance_requirements)
 
         # Enhance with RAG insights
         if rag_context:
             # Check if compliance documents were retrieved
             for doc in rag_context.documents:
-                if "pci" in doc.get("metadata", {}).get("source", "").lower():
-                    if "pci_dss" not in plan.compliance_checks:
-                        plan.compliance_checks.append("pci_dss")
+                source = doc.get("metadata", {}).get("source", "").lower()
+                if "pci" in source and "pci_dss" not in plan.compliance_checks:
+                    plan.compliance_checks.append("pci_dss")
 
-                if "rbi" in doc.get("metadata", {}).get("source", "").lower():
-                    if "rbi_guidelines" not in plan.compliance_checks:
+                # Region-specific RAG checks
+                if region == "india":
+                    if "rbi" in source and "rbi_guidelines" not in plan.compliance_checks:
                         plan.compliance_checks.append("rbi_guidelines")
+                    if "dpdp" in source and "dpdp" not in plan.compliance_checks:
+                        plan.compliance_checks.append("dpdp")
+                elif region == "eu":
+                    if "gdpr" in source and "gdpr" not in plan.compliance_checks:
+                        plan.compliance_checks.append("gdpr")
+                    if "psd2" in source and "psd2" not in plan.compliance_checks:
+                        plan.compliance_checks.append("psd2")
+                    if "dora" in source and "dora" not in plan.compliance_checks:
+                        plan.compliance_checks.append("dora")
+                elif region == "uk":
+                    if "fca" in source and "fca" not in plan.compliance_checks:
+                        plan.compliance_checks.append("fca")
+                    if "uk_gdpr" in source and "uk_gdpr" not in plan.compliance_checks:
+                        plan.compliance_checks.append("uk_gdpr")
+                    if "psr" in source and "psr" not in plan.compliance_checks:
+                        plan.compliance_checks.append("psr")
 
             # Update analysis with context
             plan.analysis += f"\n\nRAG Context: Retrieved {len(rag_context.documents)} relevant documents"
@@ -271,8 +291,8 @@ class RAGOrchestrator(Orchestrator):
     async def _spawn_agents_with_rag(
         self,
         plan: TaskPlan,
-        rag_context: Optional[RAGContext]
-    ) -> List[Agent]:
+        rag_context: RAGContext | None
+    ) -> list[Agent]:
         """Spawn agents with RAG-enhanced prompts"""
         agents = []
 
@@ -300,7 +320,7 @@ class RAGOrchestrator(Orchestrator):
         self,
         original_prompt: str,
         rag_context: RAGContext,
-        vertical: Optional[str]
+        vertical: str | None
     ) -> str:
         """Enhance system prompt with RAG context"""
         context_section = f"""
@@ -320,8 +340,8 @@ Apply the above context when generating your response. Cite sources where applic
 
     async def _scan_results_for_security(
         self,
-        results: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        results: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Scan any generated code for security issues"""
         security_issues = []
 
@@ -347,10 +367,10 @@ Apply the above context when generating your response. Cite sources where applic
 
     async def _aggregate_results_with_sources(
         self,
-        results: List[Dict[str, Any]],
+        results: list[dict[str, Any]],
         plan: TaskPlan,
-        rag_context: Optional[RAGContext],
-        security_results: Dict[str, Any]
+        rag_context: RAGContext | None,
+        security_results: dict[str, Any]
     ) -> str:
         """Aggregate results with RAG sources and security findings"""
         output = await self._aggregate_results(results, plan)
@@ -372,11 +392,11 @@ Apply the above context when generating your response. Cite sources where applic
 
     async def _verify_compliance_with_rag(
         self,
-        results: List[Dict[str, Any]],
-        requirements: List[str],
-        vertical: Optional[str],
-        rag_context: Optional[RAGContext]
-    ) -> Dict[str, bool]:
+        results: list[dict[str, Any]],
+        requirements: list[str],
+        vertical: str | None,
+        rag_context: RAGContext | None
+    ) -> dict[str, bool]:
         """Verify compliance with RAG-backed checks"""
         compliance_status = await self._verify_compliance(results, requirements, vertical)
 
@@ -399,7 +419,7 @@ Apply the above context when generating your response. Cite sources where applic
         self,
         directory: str,
         vertical: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Index documents into the knowledge base"""
         from pathlib import Path
 
@@ -422,7 +442,7 @@ Apply the above context when generating your response. Cite sources where applic
         query: str,
         vertical: str,
         n_results: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search the knowledge base directly"""
         rag = self.get_vertical_rag(vertical)
         return rag.retrieve(
@@ -431,7 +451,7 @@ Apply the above context when generating your response. Cite sources where applic
             n_results=n_results
         )
 
-    def get_rag_stats(self) -> Dict[str, Any]:
+    def get_rag_stats(self) -> dict[str, Any]:
         """Get RAG pipeline statistics"""
         return {
             "base_rag": self.rag.get_stats(),

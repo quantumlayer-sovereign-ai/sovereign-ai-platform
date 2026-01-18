@@ -10,19 +10,22 @@ Enterprise API for regulated industries with:
 
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from datetime import datetime
+
+import structlog
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-import structlog
 
-from core.models.qwen import QwenModel
-from core.orchestrator.main import Orchestrator
 from core.agents.registry import get_registry
-from verticals.fintech import register_fintech_roles, ComplianceChecker
+from core.models.qwen import QwenModel
+from core.orchestrator import RAGOrchestrator
+from core.tools.security_tools import SecurityScanner
+from verticals.fintech import ComplianceChecker, register_fintech_roles
+from verticals.fintech.region import FinTechRegion, get_region_config
 
 logger = structlog.get_logger()
 
@@ -45,30 +48,38 @@ app.add_middleware(
 )
 
 # Global instances
-model: Optional[QwenModel] = None
-orchestrator: Optional[Orchestrator] = None
+model: QwenModel | None = None
+orchestrator: RAGOrchestrator | None = None
+security_scanner: SecurityScanner | None = None
+
+
+# Valid regions
+VALID_REGIONS = ["india", "eu", "uk"]
 
 
 # Request/Response Models
 class TaskRequest(BaseModel):
     task: str = Field(..., description="Task description", min_length=1)
-    vertical: Optional[str] = Field("fintech", description="Industry vertical")
-    compliance_requirements: Optional[List[str]] = Field(default=[], description="Compliance requirements")
+    vertical: str | None = Field("fintech", description="Industry vertical")
+    region: str | None = Field("india", description="Region: india, eu, or uk")
+    compliance_requirements: list[str] | None = Field(default=[], description="Compliance requirements")
+    use_rag: bool | None = Field(True, description="Use RAG for context retrieval")
 
 
 class TaskResponse(BaseModel):
     task_id: str
     success: bool
     output: str
-    agents_used: List[str]
-    compliance_status: Dict[str, bool]
+    agents_used: list[str]
+    compliance_status: dict[str, bool]
     execution_time_seconds: float
 
 
 class ComplianceRequest(BaseModel):
     code: str = Field(..., description="Code to check")
-    filename: Optional[str] = Field("code.py", description="Filename")
-    standards: Optional[List[str]] = Field(["pci_dss", "rbi"], description="Standards to check")
+    filename: str | None = Field("code.py", description="Filename")
+    standards: list[str] | None = Field(None, description="Standards to check (auto-detected from region if not set)")
+    region: str | None = Field("india", description="Region: india, eu, or uk")
 
 
 class HealthResponse(BaseModel):
@@ -76,6 +87,23 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     available_roles: int
     uptime_seconds: float
+    rag_enabled: bool = True
+
+
+class RAGIndexRequest(BaseModel):
+    directory: str = Field(..., description="Directory to index")
+    vertical: str = Field("fintech", description="Vertical for the documents")
+
+
+class RAGSearchRequest(BaseModel):
+    query: str = Field(..., description="Search query")
+    vertical: str = Field("fintech", description="Vertical to search")
+    n_results: int = Field(5, description="Number of results")
+
+
+class SecurityScanRequest(BaseModel):
+    code: str = Field(..., description="Code to scan")
+    filename: str = Field("code.py", description="Filename for reporting")
 
 
 # Startup time tracking
@@ -85,7 +113,7 @@ startup_time = datetime.now()
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
-    global model, orchestrator
+    global model, orchestrator, security_scanner
 
     logger.info("starting_sovereign_ai")
 
@@ -103,20 +131,26 @@ async def startup_event():
     if os.environ.get("LOAD_MODEL_AT_STARTUP", "false").lower() == "true":
         model.load()
 
-    # Initialize orchestrator
+    # Initialize RAG-enhanced orchestrator
     max_agents = int(os.environ.get("MAX_AGENTS", "10"))
     default_vertical = os.environ.get("VERTICAL", "fintech")
+    rag_persist_dir = os.environ.get("RAG_PERSIST_DIR", "./data/vectordb")
 
-    orchestrator = Orchestrator(
+    orchestrator = RAGOrchestrator(
         model_interface=model if model.is_loaded else None,
         max_agents=max_agents,
-        default_vertical=default_vertical
+        default_vertical=default_vertical,
+        rag_persist_dir=rag_persist_dir
     )
+
+    # Initialize security scanner
+    security_scanner = SecurityScanner()
 
     logger.info("sovereign_ai_ready",
                model_size=model_size,
                quantize=quantize,
-               max_agents=max_agents)
+               max_agents=max_agents,
+               rag_enabled=True)
 
 
 @app.on_event("shutdown")
@@ -139,7 +173,8 @@ async def health():
         status="healthy",
         model_loaded=model.is_loaded if model else False,
         available_roles=len(registry.list_roles()),
-        uptime_seconds=uptime
+        uptime_seconds=uptime,
+        rag_enabled=True
     )
 
 
@@ -154,6 +189,7 @@ async def load_model():
 
     model.load()
     orchestrator.model = model
+    orchestrator.factory.model_interface = model  # Also update factory
 
     return {"status": "loaded", "info": model.model_info}
 
@@ -187,15 +223,26 @@ async def execute_task(request: TaskRequest):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
 
+    # Validate region
+    region = (request.region or "india").lower()
+    if region not in VALID_REGIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid region: {region}. Must be one of: {VALID_REGIONS}"
+        )
+
     # Load model if not loaded
     if model and not model.is_loaded:
         model.load()
         orchestrator.model = model
+        orchestrator.factory.model_interface = model  # Also update factory
 
     result = await orchestrator.execute(
         task=request.task,
         vertical=request.vertical,
-        compliance_requirements=request.compliance_requirements
+        region=region,
+        compliance_requirements=request.compliance_requirements,
+        use_rag=request.use_rag
     )
 
     return TaskResponse(
@@ -210,19 +257,26 @@ async def execute_task(request: TaskRequest):
 
 # List roles endpoint
 @app.get("/roles")
-async def list_roles(vertical: Optional[str] = None):
+async def list_roles(vertical: str | None = None, region: str | None = None):
     """List available agent roles"""
     registry = get_registry()
 
-    if vertical:
-        roles = registry.get_roles_by_vertical(vertical)
-    else:
-        roles = registry.list_roles()
+    roles = registry.get_roles_by_vertical(vertical) if vertical else registry.list_roles()
+
+    # Filter by region if specified
+    if region:
+        region = region.lower()
+        if region == "india":
+            # India roles don't have prefix
+            roles = [r for r in roles if not r.startswith(("eu_", "uk_"))]
+        elif region in ("eu", "uk"):
+            roles = [r for r in roles if r.startswith(f"{region}_")]
 
     return {
         "roles": roles,
         "count": len(roles),
-        "vertical_filter": vertical
+        "vertical_filter": vertical,
+        "region_filter": region
     }
 
 
@@ -243,12 +297,28 @@ async def get_role(role_name: str):
 @app.post("/compliance/check")
 async def check_compliance(request: ComplianceRequest):
     """Check code for compliance issues"""
-    checker = ComplianceChecker(standards=request.standards)
+    # Validate region
+    region = (request.region or "india").lower()
+    if region not in VALID_REGIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid region: {region}. Must be one of: {VALID_REGIONS}"
+        )
+
+    # Get region-appropriate standards if not specified
+    standards = request.standards
+    if not standards:
+        region_config = get_region_config(region)
+        standards = region_config.compliance_standards
+
+    checker = ComplianceChecker(standards=standards, region=region)
     report = checker.check_code(request.code, request.filename)
 
     return {
         "passed": report.passed,
         "summary": report.summary,
+        "region": region,
+        "standards_checked": standards,
         "issues": [
             {
                 "rule_id": i.rule_id,
@@ -304,6 +374,70 @@ async def get_audit_trail():
         "audit_trail": orchestrator.factory.get_audit_trail(),
         "generated_at": datetime.now().isoformat()
     }
+
+
+# RAG endpoints
+@app.post("/rag/index")
+async def index_knowledge_base(request: RAGIndexRequest):
+    """Index documents into the RAG knowledge base"""
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    try:
+        result = await orchestrator.index_knowledge_base(
+            directory=request.directory,
+            vertical=request.vertical
+        )
+        return {
+            "status": "indexed",
+            "directory": request.directory,
+            "vertical": request.vertical,
+            "chunks_indexed": result.get("chunks_indexed", 0)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/rag/search")
+async def search_knowledge(request: RAGSearchRequest):
+    """Search the RAG knowledge base"""
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    try:
+        results = await orchestrator.search_knowledge(
+            query=request.query,
+            vertical=request.vertical,
+            n_results=request.n_results
+        )
+        return {
+            "query": request.query,
+            "vertical": request.vertical,
+            "results": results,
+            "count": len(results)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/rag/stats")
+async def rag_stats():
+    """Get RAG pipeline statistics"""
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    return orchestrator.get_rag_stats()
+
+
+# Security scanning endpoint
+@app.post("/security/scan")
+async def scan_code(request: SecurityScanRequest):
+    """Scan code for security vulnerabilities"""
+    if not security_scanner:
+        raise HTTPException(status_code=503, detail="Security scanner not initialized")
+
+    result = security_scanner.scan_code(request.code, request.filename)
+    return result
 
 
 if __name__ == "__main__":

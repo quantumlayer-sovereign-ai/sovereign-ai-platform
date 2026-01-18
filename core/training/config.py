@@ -51,7 +51,7 @@ class TrainingConfig:
     max_grad_norm: float = 0.3
 
     # Optimizer settings
-    optimizer: str = "paged_adamw_8bit"
+    optimizer: str = "adamw_torch"  # Use standard AdamW for CPU/GPU compatibility
     lr_scheduler_type: str = "cosine"
 
     # Sequence settings
@@ -66,7 +66,7 @@ class TrainingConfig:
     eval_steps: int = 50
     eval_strategy: str = "steps"
 
-    # Mixed precision
+    # Mixed precision (bf16 for modern GPUs like RTX 30xx/40xx, fp16 fallback)
     fp16: bool = False
     bf16: bool = True
 
@@ -99,7 +99,7 @@ class TrainingConfig:
             logging_steps=self.logging_steps,
             save_steps=self.save_steps,
             save_total_limit=self.save_total_limit,
-            evaluation_strategy=self.eval_strategy,
+            eval_strategy=self.eval_strategy,
             eval_steps=self.eval_steps,
             fp16=self.fp16,
             bf16=self.bf16,
@@ -166,6 +166,122 @@ ROLE_CONFIGS: dict[str, dict] = {
         "focus": ["test_generation", "payment_testing", "security_testing"],
         "target_samples": 600,
         "priority": "low",
+    },
+
+    # EU FinTech Roles
+    "eu_fintech_coder": {
+        "lora": LoRAConfig(r=32, lora_alpha=64),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+            max_seq_length=4096,
+        ),
+        "focus": ["sepa_integration", "psd2_sca", "gdpr_code", "open_banking_eu"],
+        "target_samples": 1500,
+        "priority": "high",
+        "region": "eu",
+    },
+    "eu_fintech_security": {
+        "lora": LoRAConfig(r=16, lora_alpha=32),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["gdpr_security", "psd2_security", "dora_compliance"],
+        "target_samples": 1000,
+        "priority": "high",
+        "region": "eu",
+    },
+    "eu_fintech_compliance": {
+        "lora": LoRAConfig(r=8, lora_alpha=16),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["gdpr_articles", "psd2_requirements", "dora_framework", "eidas"],
+        "target_samples": 800,
+        "priority": "medium",
+        "region": "eu",
+    },
+    "eu_fintech_architect": {
+        "lora": LoRAConfig(r=16, lora_alpha=32),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["sepa_architecture", "open_banking_design", "gdpr_by_design"],
+        "target_samples": 800,
+        "priority": "medium",
+        "region": "eu",
+    },
+    "eu_fintech_tester": {
+        "lora": LoRAConfig(r=16, lora_alpha=32),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["sepa_testing", "psd2_testing", "gdpr_testing"],
+        "target_samples": 600,
+        "priority": "low",
+        "region": "eu",
+    },
+
+    # UK FinTech Roles
+    "uk_fintech_coder": {
+        "lora": LoRAConfig(r=32, lora_alpha=64),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+            max_seq_length=4096,
+        ),
+        "focus": ["fps_integration", "open_banking_uk", "fca_code", "cop_implementation"],
+        "target_samples": 1500,
+        "priority": "high",
+        "region": "uk",
+    },
+    "uk_fintech_security": {
+        "lora": LoRAConfig(r=16, lora_alpha=32),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["fca_security", "uk_gdpr_security", "psr_fraud_prevention"],
+        "target_samples": 1000,
+        "priority": "high",
+        "region": "uk",
+    },
+    "uk_fintech_compliance": {
+        "lora": LoRAConfig(r=8, lora_alpha=16),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["fca_handbook", "consumer_duty", "uk_gdpr", "psr_requirements"],
+        "target_samples": 800,
+        "priority": "medium",
+        "region": "uk",
+    },
+    "uk_fintech_architect": {
+        "lora": LoRAConfig(r=16, lora_alpha=32),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["fps_architecture", "open_banking_uk_design", "fca_architecture"],
+        "target_samples": 800,
+        "priority": "medium",
+        "region": "uk",
+    },
+    "uk_fintech_tester": {
+        "lora": LoRAConfig(r=16, lora_alpha=32),
+        "training": TrainingConfig(
+            epochs=3,
+            learning_rate=2e-4,
+        ),
+        "focus": ["fps_testing", "cop_testing", "psr_testing"],
+        "target_samples": 600,
+        "priority": "low",
+        "region": "uk",
     },
 }
 
