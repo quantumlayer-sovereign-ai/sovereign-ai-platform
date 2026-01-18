@@ -74,3 +74,4 @@ data/training/*
 data/knowledge/**/*.pdf
 data/knowledge/**/*.csv
 !data/knowledge/fintech/
+projects/
