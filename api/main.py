@@ -43,7 +43,15 @@ app = FastAPI(
 # CORS configuration - hardened for production
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "").split(",")
 if not ALLOWED_ORIGINS or ALLOWED_ORIGINS == [""]:
-    ALLOWED_ORIGINS = ["http://localhost:3000"]  # Dev default
+    # Dev default: allow localhost and common local network IPs
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://192.168.1.204:3000",  # Local network
+    ]
+    # In dev mode, also allow any origin for easier testing
+    if DEV_MODE:
+        ALLOWED_ORIGINS = ["*"]
 
 app.add_middleware(
     CORSMiddleware,

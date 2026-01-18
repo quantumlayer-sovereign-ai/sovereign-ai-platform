@@ -1,4 +1,25 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Dynamically determine API base URL
+// If NEXT_PUBLIC_API_URL is set, use it; otherwise use the same host as the frontend on port 8000
+const getApiBase = (): string => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    // Use the same hostname as the frontend, but port 8000
+    return `http://${window.location.hostname}:8000`;
+  }
+  // Fallback for SSR
+  return 'http://localhost:8000';
+};
+
+// Lazily evaluated to ensure window is available in browser
+let _apiBase: string | null = null;
+const getApiUrl = (): string => {
+  if (_apiBase === null) {
+    _apiBase = getApiBase();
+  }
+  return _apiBase;
+};
 
 // Token management
 let authToken: string | null = null;
@@ -37,7 +58,7 @@ const getHeaders = (includeContentType = true): HeadersInit => {
 
 // Login to get token (dev mode)
 export const login = async (userId: string, email: string): Promise<string> => {
-  const res = await fetch(`${API_BASE}/auth/token`, {
+  const res = await fetch(`${getApiUrl()}/auth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, email }),
@@ -171,14 +192,14 @@ export interface AuditEntry {
 export const api = {
   // Health (public endpoint - no auth required)
   getHealth: async (): Promise<HealthResponse> => {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await fetch(`${getApiUrl()}/health`);
     if (!res.ok) throw new Error('Failed to fetch health');
     return res.json();
   },
 
   // Tasks
   executeTask: async (task: TaskRequest): Promise<TaskResponse> => {
-    const res = await fetch(`${API_BASE}/task/execute`, {
+    const res = await fetch(`${getApiUrl()}/task/execute`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(task),
@@ -188,7 +209,7 @@ export const api = {
   },
 
   getTaskHistory: async (limit = 10): Promise<TaskResponse[]> => {
-    const res = await fetch(`${API_BASE}/tasks/history?limit=${limit}`, {
+    const res = await fetch(`${getApiUrl()}/tasks/history?limit=${limit}`, {
       headers: getHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to fetch task history');
@@ -197,7 +218,7 @@ export const api = {
 
   // Compliance
   checkCompliance: async (req: ComplianceRequest): Promise<ComplianceResponse> => {
-    const res = await fetch(`${API_BASE}/compliance/check`, {
+    const res = await fetch(`${getApiUrl()}/compliance/check`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(req),
@@ -208,7 +229,7 @@ export const api = {
 
   // Security
   scanCode: async (req: SecurityScanRequest): Promise<ComplianceResponse> => {
-    const res = await fetch(`${API_BASE}/security/scan`, {
+    const res = await fetch(`${getApiUrl()}/security/scan`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(req),
@@ -219,7 +240,7 @@ export const api = {
 
   // RAG
   searchKnowledge: async (req: RAGSearchRequest): Promise<RAGSearchResponse> => {
-    const res = await fetch(`${API_BASE}/rag/search`, {
+    const res = await fetch(`${getApiUrl()}/rag/search`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(req),
@@ -229,7 +250,7 @@ export const api = {
   },
 
   indexDocuments: async (collection: string, documents: string[]): Promise<{ indexed: number }> => {
-    const res = await fetch(`${API_BASE}/rag/index`, {
+    const res = await fetch(`${getApiUrl()}/rag/index`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ collection, documents }),
@@ -240,14 +261,14 @@ export const api = {
 
   // Roles & Agents (public endpoint - no auth required)
   getRoles: async (vertical?: string): Promise<RolesResponse> => {
-    const url = vertical ? `${API_BASE}/roles?vertical=${vertical}` : `${API_BASE}/roles`;
+    const url = vertical ? `${getApiUrl()}/roles?vertical=${vertical}` : `${getApiUrl()}/roles`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch roles');
     return res.json();
   },
 
   getStats: async (): Promise<StatsResponse> => {
-    const res = await fetch(`${API_BASE}/stats`, {
+    const res = await fetch(`${getApiUrl()}/stats`, {
       headers: getHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to fetch stats');
@@ -255,7 +276,7 @@ export const api = {
   },
 
   getAudit: async (): Promise<AuditEntry[]> => {
-    const res = await fetch(`${API_BASE}/audit`, {
+    const res = await fetch(`${getApiUrl()}/audit`, {
       headers: getHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to fetch audit');
