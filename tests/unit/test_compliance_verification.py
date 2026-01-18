@@ -168,7 +168,7 @@ class TestComplianceVerification:
         ]
         requirements = ["pci_dss"]
 
-        with patch("core.orchestrator.main.SecurityScanner") as MockScanner:
+        with patch("core.tools.security_tools.SecurityScanner") as MockScanner:
             mock_scanner = MagicMock()
             mock_scanner.scan_code.return_value = {"passed": True, "issues": []}
             MockScanner.return_value = mock_scanner
@@ -188,7 +188,7 @@ class TestComplianceVerification:
         ]
         requirements = []
 
-        with patch("core.orchestrator.main.SecurityScanner") as MockScanner:
+        with patch("core.tools.security_tools.SecurityScanner") as MockScanner:
             mock_scanner = MagicMock()
             mock_scanner.scan_code.return_value = {
                 "passed": False,
@@ -209,7 +209,7 @@ class TestComplianceVerification:
         results = [{"response": "```python\ncode\n```"}]
         requirements = []
 
-        with patch("core.orchestrator.main.SecurityScanner") as MockScanner:
+        with patch("core.tools.security_tools.SecurityScanner") as MockScanner:
             MockScanner.side_effect = Exception("Scanner unavailable")
 
             status = await orchestrator._verify_compliance(
@@ -270,7 +270,7 @@ class TestComplianceWithChecker:
             mock_checker.check_code.return_value = mock_report
             MockChecker.return_value = mock_checker
 
-            with patch("core.orchestrator.main.SecurityScanner") as MockScanner:
+            with patch("core.tools.security_tools.SecurityScanner") as MockScanner:
                 mock_scanner = MagicMock()
                 mock_scanner.scan_code.return_value = {"passed": True, "issues": []}
                 MockScanner.return_value = mock_scanner
@@ -296,7 +296,7 @@ class TestComplianceWithChecker:
             mock_checker.check_code.return_value = mock_report
             MockChecker.return_value = mock_checker
 
-            with patch("core.orchestrator.main.SecurityScanner") as MockScanner:
+            with patch("core.tools.security_tools.SecurityScanner") as MockScanner:
                 mock_scanner = MagicMock()
                 mock_scanner.scan_code.return_value = {"passed": True, "issues": []}
                 MockScanner.return_value = mock_scanner
@@ -327,7 +327,7 @@ class TestComplianceWithChecker:
             mock_checker.check_code.return_value = mock_report
             MockChecker.return_value = mock_checker
 
-            with patch("core.orchestrator.main.SecurityScanner") as MockScanner:
+            with patch("core.tools.security_tools.SecurityScanner") as MockScanner:
                 mock_scanner = MagicMock()
                 mock_scanner.scan_code.return_value = {"passed": True, "issues": []}
                 MockScanner.return_value = mock_scanner

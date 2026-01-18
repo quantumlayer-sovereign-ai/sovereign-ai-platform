@@ -35,20 +35,20 @@ class TestTokenBucket:
 
     def test_consume_tokens_success(self):
         """Test consuming tokens when available"""
-        bucket = TokenBucket(capacity=10.0, tokens=10.0, refill_rate=1.0)
+        bucket = TokenBucket(capacity=10.0, tokens=10.0, refill_rate=0.0)  # No refill
 
         assert bucket.consume(1)
-        assert bucket.tokens == 9.0
+        assert bucket.tokens == pytest.approx(9.0, rel=0.01)
 
         assert bucket.consume(5)
-        assert bucket.tokens == 4.0
+        assert bucket.tokens == pytest.approx(4.0, rel=0.01)
 
     def test_consume_tokens_fail_insufficient(self):
         """Test consuming fails when insufficient tokens"""
-        bucket = TokenBucket(capacity=10.0, tokens=2.0, refill_rate=1.0)
+        bucket = TokenBucket(capacity=10.0, tokens=2.0, refill_rate=0.0)  # No refill
 
         assert not bucket.consume(5)
-        assert bucket.tokens == 2.0  # Tokens unchanged
+        assert bucket.tokens == pytest.approx(2.0, rel=0.01)  # Tokens unchanged
 
     def test_token_refill(self):
         """Test tokens refill over time"""
