@@ -7,15 +7,30 @@ Tests complete compliance checking workflows:
 - API integration for compliance
 """
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
+# Set up auth environment before importing app
+os.environ["DEV_MODE"] = "true"
+os.environ["JWT_SECRET_KEY"] = "test-secret-key"
+
 
 @pytest.fixture(scope="module")
-def client():
-    """Create test client"""
+def auth_token():
+    """Get a JWT token for testing"""
+    from api.auth import create_access_token
+    return create_access_token({"sub": "test-user", "email": "test@example.com", "roles": ["admin"]})
+
+
+@pytest.fixture(scope="module")
+def client(auth_token):
+    """Create test client with auth"""
     from api.main import app
     with TestClient(app) as client:
+        client.auth_token = auth_token
+        client.auth_headers = {"Authorization": f"Bearer {auth_token}"}
         yield client
 
 
@@ -163,7 +178,7 @@ def secure_hash(data):
 ''',
             "filename": "secure.py",
             "standards": ["pci_dss"]
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -181,7 +196,7 @@ url = "http://insecure.com"
 ''',
             "filename": "insecure.py",
             "standards": ["pci_dss"]
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -194,7 +209,7 @@ url = "http://insecure.com"
         response = client.post("/compliance/check", json={
             "code": "print('hello')",
             "filename": "test.py"
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -206,7 +221,7 @@ url = "http://insecure.com"
         response = client.post("/compliance/check", json={
             "code": "x = 1",
             "filename": "test.py"
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()

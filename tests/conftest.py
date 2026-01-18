@@ -272,6 +272,36 @@ def api_headers() -> dict[str, str]:
     return {"Content-Type": "application/json"}
 
 
+@pytest.fixture(scope="module")
+def auth_headers() -> dict[str, str]:
+    """
+    Auth headers with JWT token for protected endpoint tests.
+    Requires DEV_MODE=true environment variable.
+    """
+    import os
+    os.environ["DEV_MODE"] = "true"
+    os.environ["JWT_SECRET_KEY"] = "test-secret-key"
+
+    from api.auth import create_access_token
+    token = create_access_token({"sub": "test-user", "email": "test@example.com", "roles": ["admin"]})
+
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+
+
+@pytest.fixture(scope="module")
+def auth_token() -> str:
+    """Get a JWT token for testing"""
+    import os
+    os.environ["DEV_MODE"] = "true"
+    os.environ["JWT_SECRET_KEY"] = "test-secret-key"
+
+    from api.auth import create_access_token
+    return create_access_token({"sub": "test-user", "email": "test@example.com", "roles": ["admin"]})
+
+
 # ============================================================================
 # Cleanup Fixtures
 # ============================================================================

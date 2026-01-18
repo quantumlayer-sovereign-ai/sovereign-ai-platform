@@ -12,18 +12,33 @@ Note: Some tests require proper app initialization via startup event.
 Use pytest fixtures that handle async lifecycle.
 """
 
+import os
 
 import pytest
 from fastapi.testclient import TestClient
 
+# Set up auth environment before importing app
+os.environ["DEV_MODE"] = "true"
+os.environ["JWT_SECRET_KEY"] = "test-secret-key"
+
 
 @pytest.fixture(scope="module")
-def client():
-    """Create test client with proper app initialization"""
+def auth_token():
+    """Get a JWT token for testing"""
+    from api.auth import create_access_token
+    return create_access_token({"sub": "test-user", "email": "test@example.com", "roles": ["admin"]})
+
+
+@pytest.fixture(scope="module")
+def client(auth_token):
+    """Create test client with proper app initialization and auth"""
     from api.main import app
 
     # Use TestClient which handles startup/shutdown
     with TestClient(app) as client:
+        # Attach auth token to client for convenience
+        client.auth_token = auth_token
+        client.auth_headers = {"Authorization": f"Bearer {auth_token}"}
         yield client
 
 
@@ -61,7 +76,7 @@ class TestAPIRolesEndpoints:
     @pytest.mark.integration
     def test_list_roles(self, client):
         """Test listing all roles"""
-        response = client.get("/roles")
+        response = client.get("/roles", headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -72,7 +87,7 @@ class TestAPIRolesEndpoints:
     @pytest.mark.integration
     def test_list_roles_by_vertical(self, client):
         """Test listing roles by vertical"""
-        response = client.get("/roles?vertical=fintech")
+        response = client.get("/roles?vertical=fintech", headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -81,7 +96,7 @@ class TestAPIRolesEndpoints:
     @pytest.mark.integration
     def test_get_specific_role(self, client):
         """Test getting specific role details"""
-        response = client.get("/roles/fintech_coder")
+        response = client.get("/roles/fintech_coder", headers=client.auth_headers)
 
         # May be 200 or 404 depending on registration
         if response.status_code == 200:
@@ -91,7 +106,7 @@ class TestAPIRolesEndpoints:
     @pytest.mark.integration
     def test_get_nonexistent_role(self, client):
         """Test getting non-existent role"""
-        response = client.get("/roles/nonexistent_role_xyz")
+        response = client.get("/roles/nonexistent_role_xyz", headers=client.auth_headers)
 
         assert response.status_code == 404
 
@@ -114,7 +129,7 @@ def hash_card(card_number: str) -> str:
 """,
             "filename": "secure.py",
             "standards": ["pci_dss"]
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -132,7 +147,7 @@ url = "http://payment-api.example.com/charge"
 """,
             "filename": "insecure.py",
             "standards": ["pci_dss"]
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -145,7 +160,7 @@ url = "http://payment-api.example.com/charge"
         response = client.post("/compliance/check", json={
             "code": "print('hello')",
             "filename": "test.py"
-        })
+        }, headers=client.auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -168,7 +183,7 @@ def add(a, b):
     return a + b
 """,
             "filename": "clean.py"
-        })
+        }, headers=client.auth_headers)
 
         # May return 200 or 503 depending on initialization
         if response.status_code == 200:
@@ -185,7 +200,7 @@ query = f"SELECT * FROM users WHERE id = {user_id}"
 os.system("rm " + user_input)
 """,
             "filename": "vulnerable.py"
-        })
+        }, headers=client.auth_headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -204,7 +219,7 @@ class TestAPITaskEndpoints:
             "task": "Write a hello world function",
             "vertical": "fintech",
             "use_rag": False
-        })
+        }, headers=client.auth_headers)
 
         # Accept 200 (success) or 503 (orchestrator not init in test)
         assert response.status_code in [200, 503]
@@ -221,7 +236,7 @@ class TestAPITaskEndpoints:
         response = client.post("/task/execute", json={
             "task": "Test task",
             "use_rag": False
-        })
+        }, headers=client.auth_headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -243,7 +258,7 @@ class TestAPIRAGEndpoints:
             "query": "PCI-DSS requirements",
             "vertical": "fintech",
             "n_results": 3
-        })
+        }, headers=client.auth_headers)
 
         # Accept 200 or 503
         if response.status_code == 200:
@@ -269,7 +284,7 @@ class TestAPIStatsEndpoints:
     @pytest.mark.integration
     def test_stats_endpoint(self, client):
         """Test platform statistics endpoint"""
-        response = client.get("/stats")
+        response = client.get("/stats", headers=client.auth_headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -279,7 +294,7 @@ class TestAPIStatsEndpoints:
     @pytest.mark.integration
     def test_audit_endpoint(self, client):
         """Test audit trail endpoint"""
-        response = client.get("/audit")
+        response = client.get("/audit", headers=client.auth_headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -294,7 +309,7 @@ class TestAPIModelEndpoints:
     @pytest.mark.integration
     def test_model_info(self, client):
         """Test model info endpoint"""
-        response = client.get("/model/info")
+        response = client.get("/model/info", headers=client.auth_headers)
 
         # 200 or 503 depending on model init
         if response.status_code == 200:

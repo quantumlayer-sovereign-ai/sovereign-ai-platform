@@ -74,7 +74,9 @@ class TestRequestSchemas:
         request = ComplianceRequest(code="print('hello')")
 
         assert request.filename == "code.py"
-        assert "pci_dss" in request.standards
+        # standards defaults to None (auto-detected from region by endpoint)
+        assert request.standards is None
+        assert request.region == "india"  # Default region
 
     @pytest.mark.contract
     def test_rag_index_request_valid(self):
