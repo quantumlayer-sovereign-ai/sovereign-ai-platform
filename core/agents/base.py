@@ -24,7 +24,7 @@ logger = structlog.get_logger()
 # Memory management constants
 MAX_STATE_HISTORY_SIZE = 100
 MAX_ACTION_LOG_SIZE = 100
-DEFAULT_EXECUTION_TIMEOUT = 60.0  # seconds
+DEFAULT_EXECUTION_TIMEOUT = 120.0  # seconds (2 minutes for complex tasks)
 
 
 class AgentState(Enum):
@@ -58,6 +58,7 @@ class AgentContext:
     parent_agent_id: str | None = None
     vertical: str | None = None  # fintech, healthcare, government, legal
     compliance_requirements: list[str] = field(default_factory=list)
+    complexity: str | None = None  # simple, medium, complex - for routing
 
 
 class Agent:
@@ -180,9 +181,9 @@ class Agent:
                 # Build messages for the model
                 messages = self._build_messages(context)
 
-                # Execute with model
+                # Execute with model (pass complexity for routing)
                 if self.model:
-                    response = await self._call_model(messages)
+                    response = await self._call_model(messages, complexity=context.complexity)
                 else:
                     response = f"[No model attached] Would process: {context.task}"
 
@@ -244,16 +245,27 @@ class Agent:
 
         return messages
 
-    async def _call_model(self, messages: list[dict[str, str]]) -> str:
-        """Call the underlying model with role-based routing"""
+    async def _call_model(
+        self,
+        messages: list[dict[str, str]],
+        complexity: str | None = None
+    ) -> str:
+        """Call the underlying model with complexity-based routing"""
         # This will be implemented by the model interface
         if hasattr(self.model, 'generate'):
-            # Pass agent role for role-based routing (if model supports it)
+            # Pass agent role and complexity for routing (if model supports it)
             try:
-                return await self.model.generate(messages, agent_role=self.role_name)
+                return await self.model.generate(
+                    messages,
+                    agent_role=self.role_name,
+                    complexity=complexity
+                )
             except TypeError:
-                # Fallback for models that don't support agent_role parameter
-                return await self.model.generate(messages)
+                # Fallback for models that don't support complexity parameter
+                try:
+                    return await self.model.generate(messages, agent_role=self.role_name)
+                except TypeError:
+                    return await self.model.generate(messages)
         return str(messages)
 
     async def _process_tool_calls(self, response: str) -> list[dict[str, Any]]:

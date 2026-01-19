@@ -113,9 +113,9 @@ class SemanticRouter:
         self,
         embedding_model: EmbeddingModel | None = None,
         examples_path: str | None = None,
-        local_threshold: float = 0.75,
-        azure_threshold: float = 0.70,
-        claude_threshold: float = 0.70,
+        local_threshold: float = 0.45,
+        azure_threshold: float = 0.40,
+        claude_threshold: float = 0.40,
         default_target: RouteTarget = RouteTarget.LOCAL,
         mode: RoutingMode = RoutingMode.SEMANTIC,
     ):
@@ -310,18 +310,29 @@ class SemanticRouter:
         b_arr = np.array(b)
         return float(np.dot(a_arr, b_arr) / (np.linalg.norm(a_arr) * np.linalg.norm(b_arr)))
 
-    def route(self, task: str, agent_role: str | None = None) -> RouteDecision:
+    def route(
+        self,
+        task: str,
+        agent_role: str | None = None,
+        complexity: str | None = None
+    ) -> RouteDecision:
         """
         Route a task to the appropriate model tier.
 
         Args:
             task: Task description
             agent_role: Optional agent role for role-based routing
+            complexity: Task complexity from analyzer (simple/medium/complex)
 
         Returns:
             RouteDecision with target and confidence
         """
-        # Check for hard-coded role routing first (cannot be overridden)
+        # PRIORITY 1: Complexity-based routing (from TaskAnalyzer)
+        # This is the primary routing mechanism - universal and intelligent
+        if complexity:
+            return self._route_by_complexity(complexity, agent_role)
+
+        # PRIORITY 2: Hard-coded role routing (for specific roles that must use certain models)
         if agent_role and agent_role in ROLE_HARD_ROUTING:
             target = ROLE_HARD_ROUTING[agent_role]
             return RouteDecision(
@@ -332,6 +343,7 @@ class SemanticRouter:
                 agent_role=agent_role,
             )
 
+        # PRIORITY 3: Manual mode
         if self.mode == RoutingMode.MANUAL:
             return RouteDecision(
                 target=self.default_target,
@@ -341,41 +353,71 @@ class SemanticRouter:
                 agent_role=agent_role,
             )
 
-        # Role-based routing preference (can be overridden by high semantic match)
-        role_preference = None
+        # PRIORITY 4: Role-based preferences (fallback)
         if agent_role and agent_role in ROLE_ROUTING_PREFERENCES:
-            role_preference = ROLE_ROUTING_PREFERENCES[agent_role]
+            target = ROLE_ROUTING_PREFERENCES[agent_role]
+            return RouteDecision(
+                target=target,
+                confidence=0.9,
+                mode=RoutingMode.KEYWORD,
+                reason=f"Role-based routing for {agent_role}",
+                agent_role=agent_role,
+            )
 
-        if self.mode == RoutingMode.KEYWORD:
-            decision = self._keyword_route(task)
-            # Apply role preference if no strong keyword match
-            if role_preference and decision.confidence < 0.7:
-                decision.target = role_preference
-                decision.reason = f"Role-based routing for {agent_role}"
-            decision.agent_role = agent_role
-            return decision
+        # PRIORITY 5: Default to Azure for production tasks
+        return RouteDecision(
+            target=RouteTarget.AZURE,
+            confidence=0.7,
+            mode=RoutingMode.KEYWORD,
+            reason="Default routing to Azure",
+            agent_role=agent_role,
+        )
 
-        # Semantic routing (default)
-        decision = self._semantic_route(task)
+    def _route_by_complexity(
+        self,
+        complexity: str,
+        agent_role: str | None = None
+    ) -> RouteDecision:
+        """
+        Route based on task complexity from TaskAnalyzer.
 
-        # Combine semantic routing with role preference
-        if role_preference:
-            # If semantic match is weak, prefer role-based routing
-            if decision.confidence < 0.7:
-                decision.target = role_preference
-                decision.reason = f"Role-based routing for {agent_role} (semantic confidence: {decision.confidence:.2f})"
-                decision.confidence = 0.8  # Role-based confidence
-            # If semantic match is strong but conflicts with role, log it
-            elif decision.target != role_preference:
-                logger.debug(
-                    "semantic_overrides_role",
-                    role=agent_role,
-                    role_preference=role_preference.value,
-                    semantic_target=decision.target.value,
-                    confidence=decision.confidence,
-                )
+        Simple tasks → Local (fast, free)
+        Medium tasks → Azure (production quality)
+        Complex tasks → Claude (best reasoning) → Azure fallback
+        """
+        complexity_lower = complexity.lower()
 
-        decision.agent_role = agent_role
+        if complexity_lower == "simple":
+            decision = RouteDecision(
+                target=RouteTarget.LOCAL,
+                confidence=1.0,
+                mode=RoutingMode.SEMANTIC,
+                reason=f"Complexity-based: {complexity} → local model",
+                agent_role=agent_role,
+            )
+        elif complexity_lower == "complex":
+            decision = RouteDecision(
+                target=RouteTarget.CLAUDE,
+                confidence=1.0,
+                mode=RoutingMode.SEMANTIC,
+                reason=f"Complexity-based: {complexity} → Claude (best reasoning)",
+                agent_role=agent_role,
+            )
+        else:  # medium or unknown
+            decision = RouteDecision(
+                target=RouteTarget.AZURE,
+                confidence=1.0,
+                mode=RoutingMode.SEMANTIC,
+                reason=f"Complexity-based: {complexity} → Azure (production)",
+                agent_role=agent_role,
+            )
+
+        logger.info(
+            "complexity_based_routing",
+            complexity=complexity,
+            target=decision.target.value,
+            agent_role=agent_role,
+        )
         return decision
 
     def add_example(self, text: str, target: RouteTarget) -> None:
@@ -485,6 +527,7 @@ class TripleHybridModel(ModelInterface):
         force_azure: bool = False,
         force_claude: bool = False,
         agent_role: str | None = None,
+        complexity: str | None = None,
     ) -> tuple[ModelInterface, RouteDecision]:
         """Select the appropriate model based on routing."""
         # Handle forced routing
@@ -518,9 +561,9 @@ class TripleHybridModel(ModelInterface):
             )
             return self.claude, decision
 
-        # Semantic + role-based routing
+        # Complexity-based routing (primary) or role-based routing (fallback)
         task = self._get_task_from_messages(messages)
-        decision = self.router.route(task, agent_role=agent_role)
+        decision = self.router.route(task, agent_role=agent_role, complexity=complexity)
 
         # Select model based on decision (with fallbacks)
         if decision.target == RouteTarget.CLAUDE and self.claude:
@@ -574,13 +617,15 @@ class TripleHybridModel(ModelInterface):
         force_azure: bool = False,
         force_claude: bool = False,
         agent_role: str | None = None,
+        complexity: str | None = None,
     ) -> str:
         """Generate using semantically selected model."""
         if not self._loaded:
             raise RuntimeError("Model not loaded. Call load() first.")
 
         model, decision = self._select_model(
-            messages, force_local, force_azure, force_claude, agent_role=agent_role
+            messages, force_local, force_azure, force_claude,
+            agent_role=agent_role, complexity=complexity
         )
 
         task = self._get_task_from_messages(messages)
@@ -604,13 +649,15 @@ class TripleHybridModel(ModelInterface):
         force_azure: bool = False,
         force_claude: bool = False,
         agent_role: str | None = None,
+        complexity: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream using semantically selected model."""
         if not self._loaded:
             raise RuntimeError("Model not loaded. Call load() first.")
 
         model, decision = self._select_model(
-            messages, force_local, force_azure, force_claude, agent_role=agent_role
+            messages, force_local, force_azure, force_claude,
+            agent_role=agent_role, complexity=complexity
         )
 
         task = self._get_task_from_messages(messages)

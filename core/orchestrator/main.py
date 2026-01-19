@@ -50,6 +50,7 @@ class TaskPlan:
     execution_mode: ExecutionMode
     compliance_checks: list[str]
     vertical: str | None = None
+    complexity: str | None = None  # simple, medium, complex
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -332,7 +333,8 @@ class Orchestrator:
             agents_needed=region_roles,
             execution_mode=execution_mode,
             compliance_checks=list(set(compliance_checks)),
-            vertical=vertical
+            vertical=vertical,
+            complexity=analysis_result.complexity.value
         )
 
     def _apply_region_prefix(self, roles: list[str], region: str) -> list[str]:
@@ -389,7 +391,8 @@ class Orchestrator:
                 context = AgentContext(
                     task=subtask["task"],
                     vertical=plan.vertical,
-                    compliance_requirements=plan.compliance_checks
+                    compliance_requirements=plan.compliance_checks,
+                    complexity=plan.complexity
                 )
                 tasks.append(agent.execute(context))
 
@@ -411,7 +414,8 @@ class Orchestrator:
                         for r in results
                     ],
                     vertical=plan.vertical,
-                    compliance_requirements=plan.compliance_checks
+                    compliance_requirements=plan.compliance_checks,
+                    complexity=plan.complexity
                 )
 
                 result = await agent.execute(context)
@@ -435,7 +439,8 @@ class Orchestrator:
                 context = AgentContext(
                     task=subtask["task"],
                     vertical=plan.vertical,
-                    compliance_requirements=plan.compliance_checks
+                    compliance_requirements=plan.compliance_checks,
+                    complexity=plan.complexity
                 )
                 # Wrap each agent execution in retry logic
                 tasks.append(
@@ -459,7 +464,8 @@ class Orchestrator:
                         for r in results
                     ],
                     vertical=plan.vertical,
-                    compliance_requirements=plan.compliance_checks
+                    compliance_requirements=plan.compliance_checks,
+                    complexity=plan.complexity
                 )
 
                 result = await self._execute_agent_with_retry(agent, context)

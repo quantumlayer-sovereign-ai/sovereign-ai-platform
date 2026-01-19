@@ -346,10 +346,10 @@ Apply the above context when generating your response. Cite sources where applic
         security_issues = []
 
         for result in results:
-            response = result.get("response", "")
+            response = result.get("response") or ""
 
-            # Look for code blocks
-            if "```" in response:
+            # Look for code blocks (skip if response is empty or None)
+            if response and "```" in response:
                 # Extract code from markdown code blocks
                 import re
                 code_blocks = re.findall(r'```(?:\w+)?\n(.*?)```', response, re.DOTALL)
