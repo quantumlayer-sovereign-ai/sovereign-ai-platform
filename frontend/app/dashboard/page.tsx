@@ -170,8 +170,9 @@ export default function DashboardPage() {
           );
         }
       }
-    } catch {
+    } catch (error) {
       // If API fails, show demo data
+      console.error('Task execution failed:', error);
       const demoResult = {
         task,
         agents_used: ['fintech_architect', 'fintech_coder', 'security', 'compliance', 'tester'],

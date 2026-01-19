@@ -3,11 +3,15 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { login as apiLogin, setAuthToken, getAuthToken } from '@/lib/api';
 
+// Demo credentials
+const DEMO_USERNAME = 'demo-user';
+const DEMO_PASSWORD = 'demo@sovereign-ai.dev';
+
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   token: string | null;
-  login: (userId: string, email: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   error: string | null;
 }
@@ -33,10 +37,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const autoLogin = async () => {
       if (!token && !isLoading) {
         try {
-          const newToken = await apiLogin('demo-user', 'demo@sovereign-ai.dev');
+          const newToken = await apiLogin(DEMO_USERNAME, DEMO_PASSWORD);
           setToken(newToken);
           setError(null);
-        } catch (err) {
+        } catch {
           // Auto-login failed - backend might not be in dev mode
           console.log('Auto-login failed, manual login required');
         }
@@ -45,11 +49,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     autoLogin();
   }, [token, isLoading]);
 
-  const login = useCallback(async (userId: string, email: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      const newToken = await apiLogin(userId, email);
+      const newToken = await apiLogin(username, password);
       setToken(newToken);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';

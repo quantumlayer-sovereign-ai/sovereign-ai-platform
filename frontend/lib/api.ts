@@ -57,11 +57,11 @@ const getHeaders = (includeContentType = true): HeadersInit => {
 };
 
 // Login to get token (dev mode)
-export const login = async (userId: string, email: string): Promise<string> => {
+export const login = async (username: string, password: string): Promise<string> => {
   const res = await fetch(`${getApiUrl()}/auth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, email }),
+    body: JSON.stringify({ username, password }),
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: 'Login failed' }));
@@ -225,12 +225,18 @@ export const api = {
 
   // Tasks
   executeTask: async (task: TaskRequest): Promise<TaskResponse> => {
-    const res = await fetch(`${getApiUrl()}/task/execute`, {
+    const url = `${getApiUrl()}/task/execute`;
+    console.log('Executing task:', url, 'Token:', getAuthToken()?.substring(0, 20) + '...');
+    const res = await fetch(url, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(task),
     });
-    if (!res.ok) throw new Error('Failed to execute task');
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('Task failed:', res.status, errorText);
+      throw new Error(`Failed to execute task: ${res.status}`);
+    }
     return res.json();
   },
 

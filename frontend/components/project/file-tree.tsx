@@ -70,7 +70,7 @@ function buildTree(files: ProjectFile[]): TreeNode[] {
   return sortNodes(root);
 }
 
-function getFileIcon(name: string, language: string) {
+function getFileIcon(name: string, _language: string) {
   const ext = name.split('.').pop()?.toLowerCase();
 
   if (ext === 'json') return FileJson;

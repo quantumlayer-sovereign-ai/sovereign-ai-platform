@@ -5,7 +5,7 @@ import { Download, Copy, Check, FolderOpen, Clock, Users, FileCode } from 'lucid
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FileTree, type ProjectFile } from './file-tree';
+import { FileTree } from './file-tree';
 import { CodeViewer } from './code-viewer';
 import { useProject, useProjectFile } from '@/lib/hooks/use-project';
 import { getAuthToken } from '@/lib/api';
