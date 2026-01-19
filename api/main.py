@@ -14,6 +14,11 @@ import os
 import sys
 import zipfile
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
@@ -29,6 +34,7 @@ from api.auth import JWTBearer, OptionalJWTBearer, UserContext, create_dev_token
 from api.ratelimit import RateLimitDependency, release_concurrent_slot
 from core.agents.registry import get_registry
 from core.models.qwen import QwenModel
+from core.models.azure_openai import AzureOpenAIModel, HybridModel
 from core.orchestrator import RAGOrchestrator
 from core.output import ProjectGenerator
 from core.tools.security_tools import SecurityScanner
@@ -156,8 +162,34 @@ async def startup_event():
     # Load model based on environment
     model_size = os.environ.get("MODEL_SIZE", "14b")
     quantize = os.environ.get("QUANTIZE", "true").lower() == "true"
+    use_hybrid = os.environ.get("USE_HYBRID_MODEL", "false").lower() == "true"
 
-    model = QwenModel(model_size=model_size, quantize=quantize)
+    # Initialize local model
+    local_model = QwenModel(model_size=model_size, quantize=quantize)
+
+    # Check if Azure OpenAI is configured
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+    azure_key = os.environ.get("AZURE_OPENAI_API_KEY")
+    azure_deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
+
+    if use_hybrid and azure_endpoint and azure_key:
+        # Use hybrid model (local + Azure)
+        azure_model = AzureOpenAIModel(
+            endpoint=azure_endpoint,
+            api_key=azure_key,
+            deployment=azure_deployment,
+        )
+        complexity_threshold = int(os.environ.get("COMPLEXITY_THRESHOLD", "500"))
+        model = HybridModel(
+            local_model=local_model,
+            azure_model=azure_model,
+            complexity_threshold=complexity_threshold,
+        )
+        logger.info("hybrid_model_configured", azure_deployment=azure_deployment)
+    else:
+        model = local_model
+        if use_hybrid:
+            logger.warning("hybrid_requested_but_azure_not_configured")
 
     # Don't load model at startup in dev mode
     if os.environ.get("LOAD_MODEL_AT_STARTUP", "false").lower() == "true":
