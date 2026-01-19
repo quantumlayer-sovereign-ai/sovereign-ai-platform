@@ -1,0 +1,53 @@
+{
+  "local": [
+    "Write a function to format currency values",
+    "Create a utility to validate email addresses",
+    "Parse CSV files and convert to JSON",
+    "Basic CRUD endpoint for user profiles",
+    "Mask credit card numbers for display",
+    "Write a date formatting helper function",
+    "Create a simple string sanitization utility",
+    "Generate random ID strings",
+    "Convert temperature between Celsius and Fahrenheit",
+    "Write a function to calculate percentage",
+    "Create a phone number formatter",
+    "Parse URL query parameters",
+    "Write a simple logging wrapper",
+    "Create a retry helper function",
+    "Format file sizes in human readable format"
+  ],
+  "azure": [
+    "Build a REST API with PCI compliance for payment processing",
+    "Design database schema for financial transactions",
+    "Implement JWT authentication with refresh tokens",
+    "Create a microservice with event sourcing pattern",
+    "Build a reconciliation system for bank statements",
+    "Implement rate limiting middleware for API",
+    "Create database migrations for user management",
+    "Build OAuth2 integration with Azure AD",
+    "Implement audit logging for compliance requirements",
+    "Create a batch processing pipeline for transactions",
+    "Build a caching layer with Redis integration",
+    "Implement webhook handlers for payment notifications",
+    "Create a data validation service for financial data",
+    "Build a document storage service with versioning",
+    "Implement a notification service with templates"
+  ],
+  "claude": [
+    "Design a fraud detection system with ML models",
+    "Architect a multi-tenant SaaS platform",
+    "Review code for security vulnerabilities",
+    "Design a disaster recovery strategy",
+    "Analyze architecture trade-offs between microservices and monolith",
+    "Design a real-time anomaly detection system",
+    "Create a comprehensive security audit framework",
+    "Architect an event-driven system with CQRS",
+    "Design a data privacy compliance framework for GDPR",
+    "Review and improve system resilience patterns",
+    "Design a zero-trust security architecture",
+    "Create a threat modeling analysis for financial systems",
+    "Architect a high-availability distributed database system",
+    "Design an AI-powered risk assessment engine",
+    "Create a comprehensive API security review"
+  ]
+}

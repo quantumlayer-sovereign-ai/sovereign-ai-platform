@@ -35,6 +35,8 @@ from api.ratelimit import RateLimitDependency, release_concurrent_slot
 from core.agents.registry import get_registry
 from core.models.qwen import QwenModel
 from core.models.azure_openai import AzureOpenAIModel, HybridModel
+from core.models.claude import ClaudeModel
+from core.models.router import SemanticRouter, TripleHybridModel, RoutingMode, RouteTarget
 from core.orchestrator import RAGOrchestrator
 from core.output import ProjectGenerator
 from core.tools.security_tools import SecurityScanner
@@ -172,8 +174,56 @@ async def startup_event():
     azure_key = os.environ.get("AZURE_OPENAI_API_KEY")
     azure_deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
 
-    if use_hybrid and azure_endpoint and azure_key:
-        # Use hybrid model (local + Azure)
+    # Check if Claude is configured
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    claude_model_name = os.environ.get("CLAUDE_MODEL", "claude-3.5-sonnet")
+
+    # Check if triple hybrid mode is enabled
+    use_triple_hybrid = os.environ.get("USE_TRIPLE_HYBRID", "false").lower() == "true"
+
+    if use_triple_hybrid:
+        # Use triple hybrid model (local + Azure + Claude)
+        azure_model = None
+        claude_model = None
+
+        if azure_endpoint and azure_key:
+            azure_model = AzureOpenAIModel(
+                endpoint=azure_endpoint,
+                api_key=azure_key,
+                deployment=azure_deployment,
+            )
+
+        if anthropic_key:
+            claude_model = ClaudeModel(
+                api_key=anthropic_key,
+                model=claude_model_name,
+            )
+
+        # Configure semantic router
+        routing_mode_str = os.environ.get("ROUTING_MODE", "semantic")
+        routing_mode = RoutingMode(routing_mode_str) if routing_mode_str in ["semantic", "keyword", "manual"] else RoutingMode.SEMANTIC
+
+        router = SemanticRouter(
+            local_threshold=float(os.environ.get("LOCAL_ROUTING_THRESHOLD", "0.75")),
+            azure_threshold=float(os.environ.get("AZURE_ROUTING_THRESHOLD", "0.70")),
+            claude_threshold=float(os.environ.get("CLAUDE_ROUTING_THRESHOLD", "0.70")),
+            mode=routing_mode,
+        )
+
+        model = TripleHybridModel(
+            local_model=local_model,
+            azure_model=azure_model,
+            claude_model=claude_model,
+            router=router,
+        )
+        logger.info(
+            "triple_hybrid_configured",
+            azure_deployment=azure_deployment if azure_model else None,
+            claude_model=claude_model_name if claude_model else None,
+            routing_mode=routing_mode.value,
+        )
+    elif use_hybrid and azure_endpoint and azure_key:
+        # Use dual hybrid model (local + Azure)
         azure_model = AzureOpenAIModel(
             endpoint=azure_endpoint,
             api_key=azure_key,
@@ -304,6 +354,71 @@ async def model_info(user: UserContext = Depends(JWTBearer())):
     if not model:
         raise HTTPException(status_code=503, detail="Model not initialized")
     return model.model_info
+
+
+# Route inspection endpoint (protected)
+class RouteRequest(BaseModel):
+    task: str = Field(..., description="Task description to route")
+
+
+class RouteResponse(BaseModel):
+    target: str
+    confidence: float
+    mode: str
+    matched_example: str | None = None
+    reason: str
+
+
+@app.post("/model/route", response_model=RouteResponse)
+async def inspect_route(
+    request: RouteRequest,
+    user: UserContext = Depends(JWTBearer()),
+):
+    """
+    Inspect routing decision without executing.
+
+    Returns the model tier that would be selected for the given task.
+    Only available when using TripleHybridModel.
+    """
+    if not model:
+        raise HTTPException(status_code=503, detail="Model not initialized")
+
+    # Check if model is TripleHybridModel
+    if not isinstance(model, TripleHybridModel):
+        raise HTTPException(
+            status_code=400,
+            detail="Route inspection only available with TripleHybridModel (USE_TRIPLE_HYBRID=true)"
+        )
+
+    decision = model.route(request.task)
+
+    return RouteResponse(
+        target=decision.target.value,
+        confidence=decision.confidence,
+        mode=decision.mode.value,
+        matched_example=decision.matched_example,
+        reason=decision.reason,
+    )
+
+
+# Routing stats endpoint (protected)
+@app.get("/model/routing-stats")
+async def routing_stats(user: UserContext = Depends(JWTBearer())):
+    """
+    Get routing statistics.
+
+    Only available when using TripleHybridModel.
+    """
+    if not model:
+        raise HTTPException(status_code=503, detail="Model not initialized")
+
+    if not isinstance(model, TripleHybridModel):
+        raise HTTPException(
+            status_code=400,
+            detail="Routing stats only available with TripleHybridModel (USE_TRIPLE_HYBRID=true)"
+        )
+
+    return model.get_routing_stats()
 
 
 # Execute task endpoint (protected + rate limited)

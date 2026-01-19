@@ -253,7 +253,7 @@ class HybridModel(ModelInterface):
         ]
 
         task_lower = task.lower()
-        if any(kw in task_lower for kw in complex_keywords):
+        if any(kw.lower() in task_lower for kw in complex_keywords):
             return True
 
         return False

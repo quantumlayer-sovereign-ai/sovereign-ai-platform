@@ -30,6 +30,10 @@ fastapi
 uvicorn[standard]
 pydantic>=2.0.0
 
+# Cloud LLM APIs
+openai  # For Azure OpenAI
+anthropic>=0.25.0  # For Claude API
+
 # Tools
 gitpython
 docker
