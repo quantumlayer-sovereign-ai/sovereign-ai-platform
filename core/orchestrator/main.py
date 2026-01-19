@@ -22,6 +22,7 @@ from ..agents.base import Agent, AgentContext, DEFAULT_EXECUTION_TIMEOUT
 from ..utils.retry import RetryError, with_retry
 from ..agents.factory import AgentFactory
 from ..agents.registry import get_registry
+from .task_analyzer import get_analyzer, TaskAnalysis
 
 logger = structlog.get_logger()
 
@@ -228,23 +229,54 @@ class Orchestrator:
         region: str,
         compliance_requirements: list[str]
     ) -> TaskPlan:
-        """Analyze task and create execution plan"""
+        """Analyze task and create execution plan using intelligent task analyzer"""
 
-        # Find matching roles based on task content
-        matching_roles = self.registry.find_roles_for_task(task, vertical)
+        # Use intelligent task analyzer
+        analyzer = get_analyzer()
+        analysis_result: TaskAnalysis = analyzer.analyze(task, compliance_requirements, vertical)
 
-        # If no specific roles match, use a default set based on region
-        if not matching_roles:
-            matching_roles = ["coder"]
+        # Get recommended agents from intelligent analysis
+        recommended_agents = analysis_result.recommended_agents
+
+        # Also check registry for any additional matches
+        registry_roles = self.registry.find_roles_for_task(task, vertical)
+
+        # Merge recommended agents with registry matches (recommended takes priority)
+        # Avoid adding base roles when vertical-specific roles already exist
+        all_agents = list(recommended_agents)
+
+        # Extract base role names from recommended agents for duplicate detection
+        # e.g., "fintech_coder" -> "coder", "fintech_security" -> "security"
+        base_role_names = set()
+        for agent in all_agents:
+            # Strip vertical prefixes to get base role name
+            for prefix in ["fintech_", "eu_fintech_", "uk_fintech_"]:
+                if agent.startswith(prefix):
+                    base_role_names.add(agent[len(prefix):])
+                    break
+            else:
+                # No prefix, it's already a base role
+                base_role_names.add(agent)
+
+        for role in registry_roles:
+            # Check if this role or its base version is already in the list
+            if role not in all_agents and role not in base_role_names:
+                all_agents.append(role)
+
+        # If still no agents, fall back to coder
+        if not all_agents:
+            all_agents = ["coder"]
 
         # Apply region prefix to roles (eu_, uk_, or none for india)
-        region_roles = self._apply_region_prefix(matching_roles, region)
+        region_roles = self._apply_region_prefix(all_agents, region)
 
-        # Determine execution mode
-        execution_mode = ExecutionMode.SEQUENTIAL
-        if len(region_roles) > 2:
-            # For complex tasks, some can run in parallel
+        # Determine execution mode based on complexity
+        if analysis_result.complexity.value == "complex" and len(region_roles) > 2:
             execution_mode = ExecutionMode.PARALLEL
+        elif len(region_roles) > 3:
+            execution_mode = ExecutionMode.PARALLEL
+        else:
+            execution_mode = ExecutionMode.SEQUENTIAL
 
         # Create subtasks for each role
         subtasks = []
@@ -255,8 +287,10 @@ class Orchestrator:
                 "depends_on": []
             })
 
-        # Add compliance checks based on vertical and region
+        # Add compliance checks based on vertical, region, and detected needs
         compliance_checks = list(compliance_requirements)
+        compliance_checks.extend(analysis_result.compliance_needs)
+
         if vertical == "fintech":
             # Base checks for all regions
             compliance_checks.extend(["pci_dss", "data_encryption", "audit_logging"])
@@ -273,8 +307,22 @@ class Orchestrator:
         elif vertical == "government":
             compliance_checks.extend(["fedramp", "security_clearance", "data_sovereignty"])
 
-        # Simple analysis without model for now
-        analysis = f"Task requires {len(region_roles)} agent(s): {', '.join(region_roles)} [region={region}]"
+        # Build analysis string
+        analysis = (
+            f"{analysis_result.reasoning} "
+            f"[type={analysis_result.task_type.value}, "
+            f"complexity={analysis_result.complexity.value}, "
+            f"region={region}]"
+        )
+
+        logger.info(
+            "task_plan_created",
+            task_id=task_id,
+            task_type=analysis_result.task_type.value,
+            complexity=analysis_result.complexity.value,
+            agents=region_roles,
+            components=analysis_result.detected_components,
+        )
 
         return TaskPlan(
             task_id=task_id,
