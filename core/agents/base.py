@@ -245,10 +245,15 @@ class Agent:
         return messages
 
     async def _call_model(self, messages: list[dict[str, str]]) -> str:
-        """Call the underlying model"""
+        """Call the underlying model with role-based routing"""
         # This will be implemented by the model interface
         if hasattr(self.model, 'generate'):
-            return await self.model.generate(messages)
+            # Pass agent role for role-based routing (if model supports it)
+            try:
+                return await self.model.generate(messages, agent_role=self.role_name)
+            except TypeError:
+                # Fallback for models that don't support agent_role parameter
+                return await self.model.generate(messages)
         return str(messages)
 
     async def _process_tool_calls(self, response: str) -> list[dict[str, Any]]:
