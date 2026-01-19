@@ -154,7 +154,7 @@ async def startup_event():
     logger.info("fintech_roles_registered")
 
     # Load model based on environment
-    model_size = os.environ.get("MODEL_SIZE", "7b")
+    model_size = os.environ.get("MODEL_SIZE", "14b")
     quantize = os.environ.get("QUANTIZE", "true").lower() == "true"
 
     model = QwenModel(model_size=model_size, quantize=quantize)
